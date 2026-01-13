@@ -89,16 +89,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeView, onViewChange, user, onLog
                 {item.label}
               </span>
             </button>
-          ))}
-          <button 
-            onClick={onLogout}
-            className="flex flex-col items-center justify-center flex-1 space-y-1 py-1 text-slate-400"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7" />
-            </svg>
-            <span className="text-[10px] font-bold">Sign Out</span>
-          </button>
+          );
+        })}
+        <button 
+          onClick={onLogout}
+          className="flex flex-col items-center justify-center flex-1 space-y-1 py-1 text-slate-400"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7" />
+          </svg>
+          <span className="text-[10px] font-bold">Sign Out</span>
+        </button>
       </div>
     </>
   );
