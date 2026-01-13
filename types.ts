@@ -24,6 +24,7 @@ export interface LogEntry extends Vehicle {
   checkIn: string; // ISO String
   checkOut: string | null; // ISO String or null
   lastFollowUpSentAt?: string; // ISO String to track 24h notifications
+  attendantName: string;
 }
 
 export type ViewState = 'Dashboard' | 'CheckIn' | 'VehicleList' | 'History';

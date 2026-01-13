@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LogEntry, User } from '../types';
-import { StorageService } from '../services/storage';
+import { StorageService, maskPhone, DEFAULT_CAR_SVG } from '../services/storage';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface DashboardProps {
@@ -128,11 +128,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                   <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors group">
                     <td className="px-6 sm:px-8 py-5">
                       <div className="flex items-center space-x-4">
-                        <div className="relative">
+                        <div className="relative p-1 bg-slate-50 dark:bg-slate-800 rounded-lg">
                           <img 
-                            src={log.vehiclePicture} 
+                            src={log.vehiclePicture || DEFAULT_CAR_SVG} 
                             alt={log.vehicleModel} 
-                            className="w-14 h-11 object-cover rounded-[0.75rem] border border-slate-100 dark:border-slate-700 shadow-sm" 
+                            className="w-14 h-11 object-contain rounded-[0.75rem]" 
                           />
                         </div>
                         <div>
@@ -143,7 +143,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                     </td>
                     <td className="px-6 py-5 hidden sm:table-cell">
                       <p className="text-sm font-bold text-slate-900 dark:text-white">{log.firstName} {log.familyName}</p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">{log.mobileNumbers}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">{maskPhone(log.mobileNumbers)}</p>
                     </td>
                     <td className="px-6 py-5">
                       <p className="text-sm text-slate-900 dark:text-slate-300 font-black">

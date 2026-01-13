@@ -16,7 +16,8 @@ const History: React.FC = () => {
     const matchesDate = filterDate ? l.checkIn.startsWith(filterDate) : true;
     const matchesSearch = searchTerm ? 
       (l.plateNumber.toLowerCase().includes(searchTerm.toLowerCase()) || 
-       l.familyName.toLowerCase().includes(searchTerm.toLowerCase())) 
+       l.familyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+       l.attendantName?.toLowerCase().includes(searchTerm.toLowerCase())) 
       : true;
     return matchesDate && matchesSearch;
   });
@@ -46,6 +47,7 @@ const History: React.FC = () => {
       'First Name', 
       'Family Name', 
       'Mobile Number', 
+      'Attendant',
       'Check In', 
       'Check Out',
       'Duration'
@@ -59,6 +61,7 @@ const History: React.FC = () => {
       log.firstName,
       log.familyName,
       log.mobileNumbers,
+      log.attendantName || '--',
       new Date(log.checkIn).toLocaleTimeString(),
       log.checkOut ? new Date(log.checkOut).toLocaleTimeString() : 'Parked',
       formatDuration(log.checkIn, log.checkOut) || '--'
@@ -106,7 +109,7 @@ const History: React.FC = () => {
             </svg>
             <input
               type="text"
-              placeholder="Search plate or owner..."
+              placeholder="Search plate, owner, or attendant..."
               className="w-full pl-14 pr-6 py-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm font-bold text-lg text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-700"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -130,6 +133,7 @@ const History: React.FC = () => {
               <tr>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Date</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Vehicle</th>
+                <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Attendant</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Check In</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Check Out</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Duration</th>
@@ -138,7 +142,7 @@ const History: React.FC = () => {
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-8 py-20 text-center text-slate-400 dark:text-slate-500 italic text-lg">No activity logs found matching your criteria.</td>
+                  <td colSpan={6} className="px-8 py-20 text-center text-slate-400 dark:text-slate-500 italic text-lg">No activity logs found matching your criteria.</td>
                 </tr>
               ) : (
                 filteredLogs.map((log) => {
@@ -159,6 +163,9 @@ const History: React.FC = () => {
                           </div>
                           <span className="text-xs text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">{log.vehicleModel}</span>
                         </div>
+                      </td>
+                      <td className="px-8 py-6 whitespace-nowrap">
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-400 uppercase tracking-tight">{log.attendantName || '--'}</p>
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex flex-col">

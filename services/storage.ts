@@ -7,6 +7,8 @@ const STORAGE_KEYS = {
   LOGS: 'jlycc_logs',
 };
 
+export const DEFAULT_CAR_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2394a3b8"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`;
+
 // Initial Seed Data
 const DEFAULT_USERS: User[] = [
   { userName: 'jly', password: 'nehemiah220', email: 'rad4862@gmail.com', roleName: 'Admin' },
@@ -77,8 +79,14 @@ const uniqueVehicles = RAW_VEHICLES.reduce((acc, current) => {
 
 const DEFAULT_VEHICLES: Vehicle[] = uniqueVehicles.map(v => ({
   ...v,
-  vehiclePicture: v.vehiclePicture || `https://picsum.photos/seed/${v.plateNumber}/400/300`
+  vehiclePicture: v.vehiclePicture || DEFAULT_CAR_SVG
 }));
+
+export const maskPhone = (phone: string): string => {
+  if (!phone || phone.length < 8) return phone;
+  // Mask middle part: 09176507304 -> 0917****304
+  return `${phone.slice(0, 4)}****${phone.slice(-3)}`;
+};
 
 export const StorageService = {
   getUsers: (): User[] => {
@@ -90,13 +98,23 @@ export const StorageService = {
     return JSON.parse(data);
   },
 
+  findUserByEmail: (email: string): User | undefined => {
+    const users = StorageService.getUsers();
+    return users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  },
+
   getDatabase: (): Vehicle[] => {
     const data = localStorage.getItem(STORAGE_KEYS.DATABASE);
     if (!data) {
       localStorage.setItem(STORAGE_KEYS.DATABASE, JSON.stringify(DEFAULT_VEHICLES));
       return DEFAULT_VEHICLES;
     }
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    // Ensure existing data with no picture uses the default SVG
+    return parsed.map((v: Vehicle) => ({
+      ...v,
+      vehiclePicture: v.vehiclePicture || DEFAULT_CAR_SVG
+    }));
   },
 
   existsByPlate: (plate: string): boolean => {
@@ -115,6 +133,7 @@ export const StorageService = {
       familyName: vehicle.familyName.toUpperCase(),
       firstName: vehicle.firstName.toUpperCase(),
       middleName: vehicle.middleName.toUpperCase(),
+      vehiclePicture: vehicle.vehiclePicture || DEFAULT_CAR_SVG
     };
     
     const index = vehicles.findIndex(v => v.plateNumber === normalized.plateNumber);

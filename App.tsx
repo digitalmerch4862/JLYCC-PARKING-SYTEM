@@ -130,7 +130,7 @@ const App: React.FC = () => {
       case 'History':
         return <History />;
       case 'CheckIn':
-        return <CheckInView onComplete={() => setActiveView('Dashboard')} />;
+        return <CheckInView user={currentUser} onComplete={() => setActiveView('Dashboard')} />;
       default:
         return <Dashboard user={currentUser} onAction={() => setActiveView('CheckIn')} />;
     }

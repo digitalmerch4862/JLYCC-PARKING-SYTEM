@@ -1,13 +1,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Vehicle, LogEntry } from '../types';
-import { StorageService } from '../services/storage';
+import { Vehicle, LogEntry, User } from '../types';
+import { StorageService, maskPhone, DEFAULT_CAR_SVG } from '../services/storage';
 
 interface CheckInViewProps {
+  user: User;
   onComplete: () => void;
 }
 
-const CheckInView: React.FC<CheckInViewProps> = ({ onComplete }) => {
+const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -52,7 +53,8 @@ const CheckInView: React.FC<CheckInViewProps> = ({ onComplete }) => {
     const newLog: Omit<LogEntry, 'id'> = {
       ...selectedVehicle,
       checkIn: new Date().toISOString(),
-      checkOut: null
+      checkOut: null,
+      attendantName: user.userName
     };
 
     StorageService.addLog(newLog);
@@ -118,11 +120,13 @@ const CheckInView: React.FC<CheckInViewProps> = ({ onComplete }) => {
                   <p className="text-xl font-bold text-slate-900 dark:text-white">{selectedVehicle.vehicleModel}</p>
                   <p className="text-slate-500 dark:text-slate-400 font-medium">{selectedVehicle.vehicleColor}</p>
                 </div>
-                <img 
-                  src={selectedVehicle.vehiclePicture} 
-                  alt="Vehicle" 
-                  className="w-full sm:w-32 h-32 sm:h-20 object-cover rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm"
-                />
+                <div className="w-full sm:w-32 h-32 sm:h-20 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-center p-2">
+                   <img 
+                    src={selectedVehicle.vehiclePicture || DEFAULT_CAR_SVG} 
+                    alt="Vehicle" 
+                    className="w-full h-full object-contain"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800">
@@ -132,7 +136,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ onComplete }) => {
                 </div>
                 <div>
                   <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">Contact</h3>
-                  <p className="font-semibold text-slate-800 dark:text-slate-200">{selectedVehicle.mobileNumbers}</p>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200">{maskPhone(selectedVehicle.mobileNumbers)}</p>
                 </div>
               </div>
             </div>

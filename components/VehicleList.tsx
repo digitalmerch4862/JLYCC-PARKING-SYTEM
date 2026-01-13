@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Vehicle } from '../types';
-import { StorageService } from '../services/storage';
+import { StorageService, maskPhone, DEFAULT_CAR_SVG } from '../services/storage';
 
 interface VehicleListProps {
   isAdmin: boolean;
@@ -78,7 +78,7 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin }) => {
 
     const finalVehicle = {
       ...newVehicle,
-      vehiclePicture: newVehicle.vehiclePicture || `https://picsum.photos/seed/${newVehicle.plateNumber}/400/300`
+      vehiclePicture: newVehicle.vehiclePicture || DEFAULT_CAR_SVG
     };
     StorageService.saveVehicle(finalVehicle);
     setVehicles(StorageService.getDatabase());
@@ -230,11 +230,11 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin }) => {
                     className="w-full p-4 border border-slate-200 dark:border-slate-800 rounded-[1.25rem] text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-lg flex justify-between items-center"
                   >
                     <span className="font-bold text-slate-400 dark:text-slate-500 uppercase text-sm">
-                      {newVehicle.vehiclePicture ? 'Update Picture' : 'Upload Picture'}
+                      {newVehicle.vehiclePicture && newVehicle.vehiclePicture !== DEFAULT_CAR_SVG ? 'Update Picture' : 'Upload Picture'}
                     </span>
                     {newVehicle.vehiclePicture && (
-                      <div className="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm">
-                        <img src={newVehicle.vehiclePicture} className="w-full h-full object-cover" alt="Preview" />
+                      <div className="w-10 h-10 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm bg-slate-100 dark:bg-slate-950 flex items-center justify-center p-1">
+                        <img src={newVehicle.vehiclePicture} className="w-full h-full object-contain" alt="Preview" />
                       </div>
                     )}
                   </div>
@@ -263,57 +263,57 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin }) => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredVehicles.map(vehicle => (
-          <div key={vehicle.plateNumber} className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative">
+          <div key={vehicle.plateNumber} className="bg-white dark:bg-[#0d1117] rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative">
             {isAdmin && (
               <button 
                 onClick={() => startEdit(vehicle)}
-                className="absolute top-4 right-4 z-10 p-3 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md text-blue-600 dark:text-blue-400 rounded-2xl shadow-lg border border-white dark:border-slate-700 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-600 dark:hover:bg-blue-600 hover:text-white dark:hover:text-white"
+                className="absolute top-5 right-5 z-10 w-12 h-12 flex items-center justify-center bg-slate-100 dark:bg-slate-800/80 backdrop-blur-md text-blue-600 dark:text-blue-400 rounded-full shadow-lg border border-white dark:border-slate-700 opacity-0 group-hover:opacity-100 transition-all hover:bg-blue-600 dark:hover:bg-blue-600 hover:text-white dark:hover:text-white"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                 </svg>
               </button>
             )}
-            <div className="aspect-[4/3] relative">
-              <img src={vehicle.vehiclePicture} className="w-full h-full object-cover" alt={vehicle.plateNumber} />
+            <div className="aspect-[4/3] relative bg-slate-50 dark:bg-slate-900/50 p-6">
+              <img src={vehicle.vehiclePicture} className="w-full h-full object-contain" alt={vehicle.plateNumber} />
               <div className="absolute top-5 left-5">
-                <span className="px-4 py-1.5 bg-slate-900/80 dark:bg-black/80 backdrop-blur-sm text-white font-black rounded-2xl text-sm tracking-wider shadow-lg border border-slate-700/50">{vehicle.plateNumber}</span>
+                <span className="px-5 py-2 bg-slate-900/90 dark:bg-slate-800/90 backdrop-blur-md text-white font-black rounded-2xl text-sm tracking-widest shadow-lg border border-white/10">{vehicle.plateNumber}</span>
               </div>
             </div>
-            <div className="p-7 space-y-6">
+            <div className="p-8 space-y-8">
               <div>
-                <h4 className="font-black text-slate-900 dark:text-white text-xl leading-tight uppercase truncate">{vehicle.vehicleModel}</h4>
-                <p className="text-sm text-slate-400 dark:text-slate-500 font-black uppercase tracking-widest mt-0.5">{vehicle.vehicleColor}</p>
+                <h4 className="font-black text-slate-900 dark:text-white text-2xl leading-tight uppercase tracking-tight">{vehicle.vehicleModel}</h4>
+                <p className="text-sm text-slate-400 dark:text-slate-500 font-black uppercase tracking-[0.15em] mt-0.5">{vehicle.vehicleColor}</p>
               </div>
               
-              <div className="flex items-center space-x-4 pt-6 border-t border-slate-100 dark:border-slate-800">
-                <div className="w-14 h-14 rounded-[1.25rem] bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-lg font-black shadow-lg shrink-0">
+              <div className="flex items-center space-x-4 pt-6 border-t border-slate-50 dark:border-slate-800/50">
+                <div className="w-14 h-14 rounded-[1.5rem] bg-blue-600 flex items-center justify-center text-white text-lg font-black shadow-lg shadow-blue-500/20 shrink-0">
                   {vehicle.firstName.charAt(0)}{vehicle.familyName.charAt(0)}
                 </div>
                 <div className="flex-1 overflow-hidden">
-                  <p className="text-base font-black text-slate-900 dark:text-white truncate uppercase">{vehicle.firstName} {vehicle.familyName}</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 font-bold mt-0.5">{vehicle.mobileNumbers}</p>
+                  <p className="text-base font-black text-slate-900 dark:text-white truncate uppercase tracking-tight">{vehicle.firstName} {vehicle.familyName}</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 font-bold mt-0.5">{maskPhone(vehicle.mobileNumbers)}</p>
                 </div>
               </div>
 
-              {/* Enhanced Action Icons - Bigger for big finger purposes */}
+              {/* Action Icons Match Screenshot Style */}
               <div className="flex items-center gap-3 pt-2">
                 <a 
                   href={`sms:${vehicle.mobileNumbers}?body=${encodeURIComponent(RELOCATION_MESSAGE)}`}
-                  className="flex-1 flex items-center justify-center py-4 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-2xl hover:bg-blue-600 dark:hover:bg-blue-600 hover:text-white transition-all active:scale-95 group/icon"
+                  className="flex-1 flex items-center justify-center py-5 bg-slate-50 dark:bg-slate-800/40 text-blue-600 dark:text-blue-400 rounded-[1.5rem] hover:bg-blue-600 dark:hover:bg-blue-600 hover:text-white transition-all active:scale-95 group/icon"
                   title="Message"
                 >
                   <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                   </svg>
                 </a>
                 <a 
                   href={`tel:${vehicle.mobileNumbers}`}
-                  className="flex-1 flex items-center justify-center py-4 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-2xl hover:bg-emerald-600 dark:hover:bg-emerald-600 hover:text-white transition-all active:scale-95 group/icon"
+                  className="flex-1 flex items-center justify-center py-5 bg-slate-50 dark:bg-emerald-800/20 text-emerald-600 dark:text-emerald-400 rounded-[1.5rem] hover:bg-emerald-600 dark:hover:bg-emerald-600 hover:text-white transition-all active:scale-95 group/icon"
                   title="Call"
                 >
                   <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                   </svg>
                 </a>
               </div>
