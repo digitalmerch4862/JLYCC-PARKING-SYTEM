@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Vehicle, LogEntry, User } from '../types';
-import { StorageService, maskPhone, DEFAULT_CAR_SVG } from '../services/storage';
+import { LogEntry, User } from '../types';
+import { StorageService, maskPhone, VehicleGroup } from '../services/storage';
 
 interface CheckInViewProps {
   user: User;
@@ -9,14 +9,22 @@ interface CheckInViewProps {
 }
 
 const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [groups, setGroups] = useState<VehicleGroup[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<VehicleGroup | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setVehicles(StorageService.getDatabase());
+    const fetchGroups = async () => {
+      setLoading(true);
+      const data = await StorageService.getGroupedVehicles();
+      setGroups(data);
+      setLoading(false);
+    };
+
+    fetchGroups();
     
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -27,13 +35,13 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredVehicles = vehicles.filter(v => 
-    v.plateNumber.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredGroups = groups.filter(g => 
+    g.plateNumber.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleSelect = (vehicle: Vehicle) => {
-    setSelectedVehicle(vehicle);
-    setSearchTerm(vehicle.plateNumber);
+  const handleSelect = (group: VehicleGroup) => {
+    setSelectedGroup(group);
+    setSearchTerm(group.plateNumber);
     setIsOpen(false);
   };
 
@@ -41,32 +49,55 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     const val = e.target.value;
     setSearchTerm(val);
     setIsOpen(true);
-    const match = vehicles.find(v => v.plateNumber === val);
-    if (!match) setSelectedVehicle(null);
-    else setSelectedVehicle(match);
+    const match = groups.find(g => g.plateNumber.toUpperCase() === val.toUpperCase());
+    if (!match) setSelectedGroup(null);
+    else setSelectedGroup(match);
   };
 
-  const handleCheckIn = (e: React.FormEvent) => {
+  const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedVehicle) return;
+    if (!selectedGroup || selectedGroup.owners.length === 0) return;
+
+    // Use the first owner as the primary contact for this specific log entry
+    const primaryOwner = selectedGroup.owners[0];
 
     const newLog: Omit<LogEntry, 'id'> = {
-      ...selectedVehicle,
+      plateNumber: selectedGroup.plateNumber,
+      vehicleModel: selectedGroup.vehicleModel,
+      vehicleColor: selectedGroup.vehicleColor,
+      familyName: primaryOwner.familyName,
+      firstName: primaryOwner.firstName,
+      middleName: primaryOwner.middleName,
+      mobileNumber: primaryOwner.mobileNumber,
+      email: primaryOwner.email,
       checkIn: new Date().toISOString(),
       checkOut: null,
       attendantName: user.userName
     };
 
-    StorageService.addLog(newLog);
-    onComplete();
+    try {
+      await StorageService.addLog(newLog);
+      onComplete();
+    } catch (error) {
+      console.error("Failed to add log:", error);
+      alert("Error saving check-in data.");
+    }
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 sm:px-0 animate-in slide-in-from-bottom-4 duration-500 pb-10 transition-colors duration-500">
+    <div className="w-full max-w-2xl mx-auto px-4 sm:px-0 animate-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="bg-white dark:bg-slate-900 p-6 sm:p-10 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-xl shadow-slate-200/30 dark:shadow-black/40 space-y-8">
-        <div className="space-y-1">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Vehicle Check-In</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base font-medium">Select a registered plate number to begin.</p>
+        <div className="space-y-1 text-center">
+          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Plate Check-In</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base font-medium">Monitoring unique plate identifiers.</p>
         </div>
 
         <form onSubmit={handleCheckIn} className="space-y-10">
@@ -78,85 +109,83 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                 value={searchTerm}
                 onChange={handleInputChange}
                 onFocus={() => setIsOpen(true)}
-                placeholder="Select Plate..."
-                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-blue-500 rounded-[1.25rem] focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900/20 outline-none transition-all font-medium text-slate-900 dark:text-white text-lg shadow-sm pr-12"
+                placeholder="Search Plate Group..."
+                className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-blue-500 rounded-[1.25rem] focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900/20 outline-none transition-all font-black text-slate-900 dark:text-white text-xl shadow-sm pr-12"
                 required
               />
-              <div className="absolute right-6 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 dark:text-slate-500">
-                <svg className={`w-5 h-5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-
-              {/* Searchable Dropdown List */}
+              
               {isOpen && (
-                <div className="absolute z-50 w-full mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
-                  {filteredVehicles.length > 0 ? (
-                    filteredVehicles.map(v => (
+                <div className="absolute z-50 w-full mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-2">
+                  {filteredGroups.length > 0 ? (
+                    filteredGroups.map(g => (
                       <div
-                        key={v.plateNumber}
-                        onClick={() => handleSelect(v)}
-                        className={`px-6 py-4 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors flex justify-between items-center ${
-                          selectedVehicle?.plateNumber === v.plateNumber ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold' : 'text-slate-700 dark:text-slate-300'
+                        key={g.plateNumber}
+                        onClick={() => handleSelect(g)}
+                        className={`px-6 py-4 cursor-pointer hover:bg-blue-600 hover:text-white transition-colors border-b border-slate-50 dark:border-slate-800 last:border-0 ${
+                          selectedGroup?.plateNumber === g.plateNumber ? 'bg-blue-50 dark:bg-blue-900/40' : ''
                         }`}
                       >
-                        <span className="text-lg">{v.plateNumber}</span>
-                        <span className="text-xs opacity-60 font-medium">{v.vehicleModel}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xl font-black">{g.plateNumber}</span>
+                          <span className="text-[10px] bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300 uppercase font-black">
+                            {g.owners.length} {g.owners.length === 1 ? 'Owner' : 'Owners'}
+                          </span>
+                        </div>
+                        <div className="text-xs opacity-60 font-medium truncate mt-1">
+                          {g.owners.map(o => `${o.firstName} ${o.familyName}`).join(', ')}
+                        </div>
                       </div>
                     ))
                   ) : (
-                    <div className="px-6 py-4 text-slate-400 dark:text-slate-600 text-center italic">No matching plates found</div>
+                    <div className="px-6 py-8 text-slate-400 dark:text-slate-600 text-center italic">No plates found</div>
                   )}
                 </div>
               )}
             </div>
           </div>
 
-          {selectedVehicle && (
-            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-[1.5rem] border border-slate-200 dark:border-slate-800 space-y-5 animate-in fade-in zoom-in-95 duration-300">
-              <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-4">
-                <div className="space-y-1 text-center sm:text-left">
-                  <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Selected Vehicle</h3>
-                  <p className="text-xl font-bold text-slate-900 dark:text-white">{selectedVehicle.vehicleModel}</p>
-                  <p className="text-slate-500 dark:text-slate-400 font-medium">{selectedVehicle.vehicleColor}</p>
+          {selectedGroup && (
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-[1.5rem] border border-slate-200 dark:border-slate-800 space-y-6 animate-in fade-in zoom-in-95">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-4">
+                <div>
+                  <h3 className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Selected Vehicle</h3>
+                  <p className="text-2xl font-black text-slate-900 dark:text-white">{selectedGroup.plateNumber}</p>
                 </div>
-                <div className="w-full sm:w-32 h-32 sm:h-20 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-center p-2">
-                   <img 
-                    src={selectedVehicle.vehiclePicture || DEFAULT_CAR_SVG} 
-                    alt="Vehicle" 
-                    className="w-full h-full object-contain"
-                  />
+                <div className="text-right">
+                  <p className="text-lg font-bold text-slate-700 dark:text-slate-300">{selectedGroup.vehicleModel}</p>
+                  <p className="text-xs text-slate-500 font-bold uppercase">{selectedGroup.vehicleColor}</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <div>
-                  <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">Owner Name</h3>
-                  <p className="font-semibold text-slate-800 dark:text-slate-200">{selectedVehicle.firstName} {selectedVehicle.familyName}</p>
-                </div>
-                <div>
-                  <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">Contact</h3>
-                  <p className="font-semibold text-slate-800 dark:text-slate-200">{maskPhone(selectedVehicle.mobileNumbers)}</p>
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Registered Contacts</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedGroup.owners.map((owner, idx) => (
+                    <div key={idx} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                      <p className="font-black text-slate-900 dark:text-white text-sm uppercase">{owner.firstName} {owner.familyName}</p>
+                      <p className="text-xs text-slate-500 font-medium">{maskPhone(owner.mobileNumber)}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row gap-4 pt-4">
+          <div className="flex flex-col sm:flex-row gap-4">
             <button
               type="button"
               onClick={onComplete}
-              className="flex-1 order-2 sm:order-1 px-8 py-5 bg-[#f1f5f9] dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-[1.25rem] hover:bg-slate-200 dark:hover:bg-slate-700 transition-all text-lg active:scale-95"
+              className="flex-1 order-2 sm:order-1 px-8 py-5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-[1.25rem] hover:bg-slate-200 transition-all text-lg"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={!selectedVehicle}
-              className={`flex-1 order-1 sm:order-2 px-8 py-5 font-bold rounded-[1.25rem] transition-all text-lg shadow-lg active:scale-95 ${
-                selectedVehicle 
-                ? 'bg-[#2563eb] text-white hover:bg-blue-700 shadow-blue-100 dark:shadow-blue-900/20' 
-                : 'bg-[#e2e8f0] dark:bg-slate-800/50 text-[#94a3b8] dark:text-slate-700 cursor-not-allowed shadow-none'
+              disabled={!selectedGroup}
+              className={`flex-1 order-1 sm:order-2 px-8 py-5 font-black rounded-[1.25rem] transition-all text-lg shadow-lg ${
+                selectedGroup 
+                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-500/20 active:scale-95' 
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-300 cursor-not-allowed'
               }`}
             >
               Confirm Check-In

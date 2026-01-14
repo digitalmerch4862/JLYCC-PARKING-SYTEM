@@ -1,169 +1,239 @@
 
 import { User, Vehicle, LogEntry } from '../types';
+import { supabase } from './supabase';
 
-const STORAGE_KEYS = {
-  USERS: 'jlycc_users',
-  DATABASE: 'jlycc_database',
-  LOGS: 'jlycc_logs',
-};
-
-export const DEFAULT_CAR_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%2394a3b8"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`;
-
-// Initial Seed Data
-const DEFAULT_USERS: User[] = [
-  { userName: 'jly', password: 'nehemiah220', email: 'rad4862@gmail.com', roleName: 'Admin' },
-  { userName: 'staff', password: '123', email: 'staff@jlycc.com', roleName: 'User' },
-];
-
-const RAW_VEHICLES: Vehicle[] = [
-  { vehicleModel: 'Avanza', vehicleColor: 'Gray', vehiclePicture: '', plateNumber: 'NCG6588', familyName: 'LI', firstName: 'MERRY JOYCE', middleName: 'TINIO', mobileNumbers: '09760901681' },
-  { vehicleModel: 'Chevrolet', vehicleColor: 'Brown', vehiclePicture: '', plateNumber: 'NDW5789', familyName: 'MICALLER', firstName: 'ROBERTO', middleName: 'BETITA', mobileNumbers: '09178173486' },
-  { vehicleModel: 'CHEVROLET CAPTIVA', vehicleColor: 'BLACK', vehiclePicture: '', plateNumber: 'ZSF767', familyName: 'AGUSTIN', firstName: 'JOY KONSTANTINE', middleName: 'GONZALES', mobileNumbers: '09176507304' },
-  { vehicleModel: 'Crosswind', vehicleColor: 'N/A', vehiclePicture: '', plateNumber: 'VWL497', familyName: 'QUIÑONEZ', firstName: 'EDWIN', middleName: 'C', mobileNumbers: '09504870138' },
-  { vehicleModel: 'CRV', vehicleColor: 'Blue', vehiclePicture: '', plateNumber: 'NDU5739', familyName: 'Pe benito', firstName: 'Levi', middleName: 'D', mobileNumbers: '09175933005' },
-  { vehicleModel: 'Ford Eco Sport', vehicleColor: 'Red', vehiclePicture: '', plateNumber: 'DBF2I56', familyName: 'Bacsarpa', firstName: 'Montessa', middleName: 'Silva', mobileNumbers: '09661444981' },
-  { vehicleModel: 'Ford Everest', vehicleColor: 'Black', vehiclePicture: '', plateNumber: 'UTO331', familyName: 'MARQUEZ', firstName: 'LEONORA', middleName: 'ABELLA', mobileNumbers: '09088630931' },
-  { vehicleModel: 'Ford explorer', vehicleColor: 'Brown red', vehiclePicture: '', plateNumber: 'NGP7288', familyName: 'MA LOURDES', firstName: 'AGUSTIN', middleName: 'ANDRES', mobileNumbers: '09175929502' },
-  { vehicleModel: 'Ford explorer', vehicleColor: 'Brown red', vehiclePicture: '', plateNumber: 'NGT7288', familyName: 'AGUSTIN', firstName: 'JUN VINCENT', middleName: 'GONZALES', mobileNumbers: '09173115996' },
-  { vehicleModel: 'Ford Fiesta', vehicleColor: 'Candy Red', vehiclePicture: '', plateNumber: 'NCF5924', familyName: 'ARCEO', firstName: 'MARY JOYCE', middleName: 'BERNAS', mobileNumbers: '09173390688' },
-  { vehicleModel: 'Ford Ranger, Toyota Fortuner, Honda Brio', vehicleColor: 'Orange, Dark Brown, Steel Gray', vehiclePicture: '', plateNumber: 'NBM4069', familyName: 'Vedasto', firstName: 'Aura Harlynne', middleName: 'Pe Benito', mobileNumbers: '09175518672' },
-  { vehicleModel: 'Ford Territory', vehicleColor: 'Gold', vehiclePicture: '', plateNumber: 'NET6662', familyName: 'BERNALDEZ', firstName: 'CHARMAGNE', middleName: 'DIZA', mobileNumbers: '09498819784' },
-  { vehicleModel: 'Ford Territory', vehicleColor: 'Crystal Pearl White', vehiclePicture: '', plateNumber: 'C8N849', familyName: 'Lapuz', firstName: 'Jeanette', middleName: 'Leones', mobileNumbers: '09178640074' },
-  { vehicleModel: 'Fortuner', vehicleColor: 'White', vehiclePicture: '', plateNumber: 'ZFW145', familyName: 'AGUSTIN', firstName: 'LIZ BETHANY', middleName: 'GAJOL', mobileNumbers: '09176353348' },
-  { vehicleModel: 'Fortuner', vehicleColor: 'Bronze', vehiclePicture: '', plateNumber: 'NAE3651', familyName: 'QUIÑONEZ', firstName: 'MARIBETH', middleName: 'RIVAS', mobileNumbers: '09152016861' },
-  { vehicleModel: 'Fortuner', vehicleColor: 'Bronze', vehiclePicture: '', plateNumber: 'NAE6351', familyName: 'QUIÑONEZ', firstName: 'JOSE', middleName: 'CONSAD', mobileNumbers: '09064523776' },
-  { vehicleModel: 'Fortuner , Ford Ranger', vehicleColor: 'Silver gray , Black', vehiclePicture: '', plateNumber: 'DAI3640', familyName: 'AMACIO', firstName: 'EDUARDO', middleName: 'RAMOS', mobileNumbers: '09088958618' },
-  { vehicleModel: 'Grandia', vehicleColor: 'White', vehiclePicture: '', plateNumber: 'NDF5618', familyName: 'SAILINDAYAO', firstName: 'ROCETTE', middleName: 'SORIA', mobileNumbers: '09679223593' },
-  { vehicleModel: 'Haojue', vehicleColor: 'Red', vehiclePicture: '', plateNumber: 'NG54544', familyName: 'AUSEJO', firstName: 'MARIA CECILIA', middleName: 'CABALAN', mobileNumbers: '09293933425' },
-  { vehicleModel: 'Honda Beat (motorcycle)', vehicleColor: 'Black', vehiclePicture: '', plateNumber: '1380-00001270338', familyName: 'MISAJON', firstName: 'ARLENE', middleName: 'BALLENTOS', mobileNumbers: '09276171443' },
-  { vehicleModel: 'Honda BRV', vehicleColor: 'White', vehiclePicture: '', plateNumber: 'NAA4168', familyName: 'LAVAPIE', firstName: 'ABI', middleName: 'SERRA', mobileNumbers: '09175330682' },
-  { vehicleModel: 'Honda click', vehicleColor: 'Black', vehiclePicture: '', plateNumber: 'CLICK-BLACK', familyName: 'PILARTA', firstName: 'KENEDY', middleName: 'CORPUZ', mobileNumbers: '09159511759' },
-  { vehicleModel: 'Honda CRV', vehicleColor: 'Metallic Gray', vehiclePicture: '', plateNumber: 'APA7742', familyName: 'TADENA', firstName: 'LEAH', middleName: 'ARIPIO', mobileNumbers: '09178812014' },
-  { vehicleModel: 'Hyundai Reina 2021', vehicleColor: 'Black', vehiclePicture: '', plateNumber: 'FAG5679', familyName: 'Jacobe', firstName: 'Babylyn', middleName: 'Pagkalinawan', mobileNumbers: '09178807039' },
-  { vehicleModel: 'Hyundai Santa Fe', vehicleColor: 'Carbon Bronze', vehiclePicture: '', plateNumber: 'NCU9315', familyName: 'ARCEO', firstName: 'CEZAR', middleName: 'FRANCO', mobileNumbers: '09177101052' },
-  { vehicleModel: 'Hyundai tribute', vehicleColor: 'White', vehiclePicture: '', plateNumber: 'ZMD-927', familyName: 'BUNHARDT', firstName: 'RUTH', middleName: 'BERDON', mobileNumbers: '09988871557' },
-  { vehicleModel: 'Innova J 2015', vehicleColor: 'Gray', vehiclePicture: '', plateNumber: 'APA9577', familyName: 'COMBATE', firstName: 'ELISA', middleName: 'RAMOS', mobileNumbers: '09171287227' },
-  { vehicleModel: 'Isuzu Crosswind XL, Mitsubishi Adventure GLX', vehicleColor: 'Dark Gray, White', vehiclePicture: '', plateNumber: 'NAD6959', familyName: 'GAJOL', firstName: 'JASPER', middleName: 'SERRA', mobileNumbers: '09955233409' },
-  { vehicleModel: 'Kia Picanto', vehicleColor: 'Blue', vehiclePicture: '', plateNumber: 'CAF7714', familyName: 'LOZA', firstName: 'ORENCIO', middleName: 'AUTENCIO', mobileNumbers: '09178860983' },
-  { vehicleModel: 'L300', vehicleColor: 'White', vehiclePicture: '', plateNumber: 'AAN2985', familyName: 'SALINDAYAO', firstName: 'ROMAR', middleName: 'SORIA', mobileNumbers: '09351230242' },
-  { vehicleModel: 'L300', vehicleColor: 'White', vehiclePicture: '', plateNumber: 'NCT5547', familyName: 'FLORES', firstName: 'REY', middleName: 'JIMUNEZ', mobileNumbers: '0' },
-  { vehicleModel: 'Mazda BT 50', vehicleColor: 'Red', vehiclePicture: '', plateNumber: 'NFD8704', familyName: 'SURIO', firstName: 'PAOLO', middleName: 'ZACARIAS', mobileNumbers: '09954385020' },
-  { vehicleModel: 'Mazda Tribute, Mitsubishi L300', vehicleColor: 'White, White', vehiclePicture: '', plateNumber: 'ZMD927', familyName: 'BUNHARDT', firstName: 'STEPHANIE NICOLE', middleName: 'VERDON', mobileNumbers: '09162639760' },
-  { vehicleModel: 'Mirage 2016', vehicleColor: 'Silver', vehiclePicture: '', plateNumber: 'NCJ8595', familyName: 'NEPOMUCENO', firstName: 'ALLAN', middleName: 'QUINTOS', mobileNumbers: '09669434350' },
-  { vehicleModel: 'Mitsubishi Lancer Ex', vehicleColor: 'Red', vehiclePicture: '', plateNumber: 'NQK663', familyName: 'AGUSTIN', firstName: 'DAVID', middleName: 'ANDRES', mobileNumbers: '09171790428' },
-  { vehicleModel: 'Mitsubishi Montero', vehicleColor: 'Silver', vehiclePicture: '', plateNumber: 'NIB9536', familyName: 'GOMEZ', firstName: 'CHARLOTTE', middleName: 'SAYSON', mobileNumbers: '09178362891' },
-  { vehicleModel: 'Mitsubishi Montero', vehicleColor: 'Red', vehiclePicture: '', plateNumber: 'AAK6394', familyName: 'PARUNGAO', firstName: 'HEART AN NICCOLE', middleName: 'ALMENDRA', mobileNumbers: '09672360038' },
-  { vehicleModel: 'Motorcyle', vehicleColor: 'N/A', vehiclePicture: '', plateNumber: 'MOTOR-01', familyName: 'PARICO', firstName: 'CHRISTOPHER NICK', middleName: 'NANZAN', mobileNumbers: '09062585924' },
-  { vehicleModel: 'Nissan Frontier', vehicleColor: 'Red', vehiclePicture: '', plateNumber: 'XPP185', familyName: 'GATCHALIAN', firstName: 'ADRIAN', middleName: 'RIVERA', mobileNumbers: '09453777812' },
-  { vehicleModel: 'Sedan', vehicleColor: 'Dark Blue', vehiclePicture: '', plateNumber: 'ZSK340', familyName: 'TABOR', firstName: 'ELIANA PSALM', middleName: 'CASTILLO', mobileNumbers: '09669746699' },
-  { vehicleModel: 'Sniper 150', vehicleColor: 'Rayen Black', vehiclePicture: '', plateNumber: '5974', familyName: 'CUETO', firstName: 'MARK CEDRICK', middleName: 'BUNHARDT', mobileNumbers: '09272213294' },
-  { vehicleModel: 'Suzuki Swift', vehicleColor: 'Black', vehiclePicture: '', plateNumber: 'NDZ7357', familyName: 'SOLIDUM', firstName: 'FRECEL', middleName: 'ORTIZ', mobileNumbers: '09568955254' },
-  { vehicleModel: 'Toyota altis', vehicleColor: 'Gray', vehiclePicture: '', plateNumber: 'ZNF996', familyName: 'Tiongson', firstName: 'Prescy', middleName: 'F', mobileNumbers: '09255093067' },
-  { vehicleModel: 'toyota fortuner', vehicleColor: 'black', vehiclePicture: '', plateNumber: 'UOV527', familyName: 'GARCIA', firstName: 'ROBERT RICH', middleName: 'DELA UMBRIA', mobileNumbers: '09062151174' },
-  { vehicleModel: 'Toyota fortuner 2017', vehicleColor: 'Black', vehiclePicture: '', plateNumber: 'NCS5066', familyName: 'BERNALDEZ', firstName: 'CHRISTOPHER', middleName: 'NOLASCO', mobileNumbers: '09171576762' },
-  { vehicleModel: 'Toyota Innova', vehicleColor: 'Blackish Red', vehiclePicture: '', plateNumber: 'DAI7056', familyName: 'MAICO', firstName: 'JOSEPHINE', middleName: 'CANTIGA', mobileNumbers: '09760731661' },
-  { vehicleModel: 'Toyota vios', vehicleColor: 'Red', vehiclePicture: '', plateNumber: 'WON899', familyName: 'DIZA', firstName: 'CHRISTIAN JONAS', middleName: 'BALMES', mobileNumbers: '09209025932' },
-  { vehicleModel: 'Toyota Vios', vehicleColor: 'Blackish Red', vehiclePicture: '', plateNumber: 'PTO977', familyName: 'MANIQUIS', firstName: 'ROMEO', middleName: 'CRUZ', mobileNumbers: '09565977886' },
-  { vehicleModel: 'Vios', vehicleColor: 'Silver', vehiclePicture: '', plateNumber: 'AAN9129', familyName: 'DUMAGAT', firstName: 'MARK', middleName: 'MARK', mobileNumbers: '09266200904' },
-];
-
-// Helper to remove duplicates by plate
-const uniqueVehicles = RAW_VEHICLES.reduce((acc, current) => {
-  const x = acc.find(item => item.plateNumber === current.plateNumber);
-  if (!x) {
-    return acc.concat([current]);
-  } else {
-    return acc;
-  }
-}, [] as Vehicle[]);
-
-const DEFAULT_VEHICLES: Vehicle[] = uniqueVehicles.map(v => ({
-  ...v,
-  vehiclePicture: v.vehiclePicture || DEFAULT_CAR_SVG
-}));
+export const MAX_CAPACITY = 25;
 
 export const maskPhone = (phone: string): string => {
   if (!phone || phone.length < 8) return phone;
-  // Mask middle part: 09176507304 -> 0917****304
   return `${phone.slice(0, 4)}****${phone.slice(-3)}`;
 };
 
+export interface VehicleGroup {
+  plateNumber: string;
+  vehicleModel: string;
+  vehicleColor: string;
+  owners: Vehicle[];
+}
+
+// Mapper to convert Vehicle DB snake_case to Frontend camelCase
+const mapVehicleFromDB = (record: any): Vehicle => ({
+  id: record.id,
+  plateNumber: record.plate_number,
+  vehicleModel: record.vehicle_model,
+  vehicleColor: record.vehicle_color,
+  familyName: record.family_name,
+  firstName: record.first_name,
+  middleName: record.middle_name,
+  mobileNumber: record.mobile_number,
+  email: record.email
+});
+
+// Mapper to convert Vehicle Frontend camelCase to DB snake_case
+const mapVehicleToDB = (v: Vehicle) => {
+  const payload: any = {
+    plate_number: v.plateNumber.toUpperCase().trim(),
+    vehicle_model: v.vehicleModel.toUpperCase().trim(),
+    vehicle_color: v.vehicleColor.toUpperCase().trim(),
+    family_name: v.familyName.toUpperCase().trim(),
+    first_name: v.firstName.toUpperCase().trim(),
+    middle_name: v.middleName?.toUpperCase().trim() || null,
+    mobile_number: v.mobileNumber.trim(),
+    email: v.email?.toLowerCase().trim() || null
+  };
+  
+  // Only include ID if it is a valid UUID string
+  if (v.id && v.id.length > 5) {
+    payload.id = v.id;
+  }
+  
+  return payload;
+};
+
+const mapLogFromDB = (record: any): LogEntry => ({
+  id: record.id,
+  plateNumber: record.plate_number,
+  vehicleModel: record.vehicle_model,
+  vehicleColor: record.vehicle_color,
+  familyName: record.family_name,
+  firstName: record.first_name,
+  middleName: record.middle_name,
+  mobileNumber: record.mobile_number,
+  email: record.email,
+  checkIn: record.check_in,
+  checkOut: record.check_out,
+  attendantName: record.attendant_name
+});
+
+const mapLogToDB = (l: Omit<LogEntry, 'id'>) => ({
+  plate_number: l.plateNumber,
+  vehicle_model: l.vehicleModel,
+  vehicle_color: l.vehicleColor,
+  family_name: l.familyName,
+  first_name: l.firstName,
+  middle_name: l.middleName || null,
+  mobile_number: l.mobileNumber,
+  email: l.email || null,
+  check_in: l.checkIn,
+  check_out: l.checkOut,
+  attendant_name: l.attendantName
+});
+
 export const StorageService = {
   getUsers: (): User[] => {
-    const data = localStorage.getItem(STORAGE_KEYS.USERS);
-    if (!data) {
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(DEFAULT_USERS));
-      return DEFAULT_USERS;
-    }
-    return JSON.parse(data);
+    return [
+      { userName: 'admin', roleName: 'Admin' },
+      { userName: 'guest', roleName: 'Guest' }
+    ];
   },
 
-  findUserByEmail: (email: string): User | undefined => {
-    const users = StorageService.getUsers();
-    return users.find(u => u.email.toLowerCase() === email.toLowerCase());
-  },
-
-  getDatabase: (): Vehicle[] => {
-    const data = localStorage.getItem(STORAGE_KEYS.DATABASE);
-    if (!data) {
-      localStorage.setItem(STORAGE_KEYS.DATABASE, JSON.stringify(DEFAULT_VEHICLES));
-      return DEFAULT_VEHICLES;
-    }
-    const parsed = JSON.parse(data);
-    // Ensure existing data with no picture uses the default SVG
-    return parsed.map((v: Vehicle) => ({
-      ...v,
-      vehiclePicture: v.vehiclePicture || DEFAULT_CAR_SVG
-    }));
-  },
-
-  existsByPlate: (plate: string): boolean => {
-    const vehicles = StorageService.getDatabase();
-    return vehicles.some(v => v.plateNumber.toUpperCase() === plate.toUpperCase());
-  },
-
-  saveVehicle: (vehicle: Vehicle) => {
-    const vehicles = StorageService.getDatabase();
-    // Normalize to Uppercase
-    const normalized = {
-      ...vehicle,
-      plateNumber: vehicle.plateNumber.toUpperCase(),
-      vehicleModel: vehicle.vehicleModel.toUpperCase(),
-      vehicleColor: vehicle.vehicleColor.toUpperCase(),
-      familyName: vehicle.familyName.toUpperCase(),
-      firstName: vehicle.firstName.toUpperCase(),
-      middleName: vehicle.middleName.toUpperCase(),
-      vehiclePicture: vehicle.vehiclePicture || DEFAULT_CAR_SVG
-    };
+  getDatabase: async (): Promise<Vehicle[]> => {
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('*')
+      .order('plate_number', { ascending: true });
     
-    const index = vehicles.findIndex(v => v.plateNumber === normalized.plateNumber);
-    if (index > -1) {
-      vehicles[index] = normalized;
-    } else {
-      vehicles.push(normalized);
+    if (error) {
+      console.error('Error fetching vehicles:', error);
+      return [];
     }
-    localStorage.setItem(STORAGE_KEYS.DATABASE, JSON.stringify(vehicles));
+    return (data || []).map(mapVehicleFromDB);
   },
 
-  getLogs: (): LogEntry[] => {
-    const data = localStorage.getItem(STORAGE_KEYS.LOGS);
-    return data ? JSON.parse(data) : [];
+  getGroupedVehicles: async (): Promise<VehicleGroup[]> => {
+    const all = await StorageService.getDatabase();
+    const groups: Record<string, VehicleGroup> = {};
+
+    all.forEach(v => {
+      const plate = v.plateNumber.toUpperCase();
+      if (!groups[plate]) {
+        groups[plate] = {
+          plateNumber: v.plateNumber,
+          vehicleModel: v.vehicleModel,
+          vehicleColor: v.vehicleColor,
+          owners: []
+        };
+      }
+      groups[plate].owners.push(v);
+    });
+
+    return Object.values(groups);
   },
 
-  addLog: (log: Omit<LogEntry, 'id'>) => {
-    const logs = StorageService.getLogs();
-    const newLog = { ...log, id: Math.random().toString(36).substr(2, 9) };
-    logs.push(newLog);
-    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
-    return newLog;
+  saveVehicle: async (vehicle: Vehicle) => {
+    const payload = mapVehicleToDB(vehicle);
+    
+    // Explicitly use primary key for conflict resolution to ensure update works
+    const { error } = await supabase
+      .from('vehicles')
+      .upsert(payload, { onConflict: 'id' });
+
+    if (error) throw error;
   },
 
-  updateLog: (log: LogEntry) => {
-    const logs = StorageService.getLogs();
-    const index = logs.findIndex(l => l.id === log.id);
-    if (index > -1) {
-      logs[index] = log;
-      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+  deleteVehicle: async (id: string) => {
+    if (!id) throw new Error("Missing ID for deletion");
+    const { error } = await supabase
+      .from('vehicles')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  },
+
+  getLogs: async (): Promise<LogEntry[]> => {
+    const { data, error } = await supabase
+      .from('parking_logs')
+      .select('*')
+      .order('check_in', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching logs:', error);
+      return [];
     }
+    return (data || []).map(mapLogFromDB);
+  },
+
+  addLog: async (log: Omit<LogEntry, 'id'>) => {
+    const payload = mapLogToDB(log);
+    const { data, error } = await supabase
+      .from('parking_logs')
+      .insert([payload])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return mapLogFromDB(data);
+  },
+
+  updateLog: async (log: LogEntry) => {
+    const { error } = await supabase
+      .from('parking_logs')
+      .update({ check_out: log.checkOut })
+      .eq('id', log.id);
+
+    if (error) throw error;
+  },
+
+  clearLogs: async () => {
+    const { error } = await supabase
+      .from('parking_logs')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000');
+
+    if (error) console.error('Error clearing logs:', error);
+  },
+
+  generateWeeklyCSV: async (): Promise<string> => {
+    const logs = await StorageService.getLogs();
+    const headers = ['Date', 'Plate', 'Model', 'Owner', 'In', 'Out', 'Attendant'];
+    const rows = logs.map(l => [
+      new Date(l.checkIn).toLocaleDateString(),
+      l.plateNumber,
+      l.vehicleModel,
+      `${l.firstName} ${l.familyName}`,
+      l.checkIn,
+      l.checkOut || 'Active',
+      l.attendantName
+    ]);
+    return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  },
+
+  /**
+   * Safe duplicate handling:
+   * Groups vehicles by (Plate, Family Name, First Name, Mobile Number)
+   * and identifies IDs that are redundant.
+   */
+  detectDuplicates: (vehicles: Vehicle[]): { uniqueCount: number, duplicateSets: string[][] } => {
+    const groups = new Map<string, string[]>();
+    
+    vehicles.forEach(v => {
+      if (!v.id) return;
+      const key = `${v.plateNumber}-${v.familyName}-${v.firstName}-${v.mobileNumber}`.toUpperCase().trim();
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(v.id);
+    });
+
+    const duplicateSets: string[][] = [];
+    groups.forEach(ids => {
+      if (ids.length > 1) {
+        // Keep the first ID, remove the rest
+        duplicateSets.push(ids.slice(1));
+      }
+    });
+
+    return {
+      uniqueCount: groups.size,
+      duplicateSets
+    };
+  },
+
+  removeDuplicates: async (idsToRemove: string[]) => {
+    if (idsToRemove.length === 0) return;
+    const { error } = await supabase
+      .from('vehicles')
+      .delete()
+      .in('id', idsToRemove);
+    if (error) throw error;
   }
 };

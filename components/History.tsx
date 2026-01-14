@@ -5,11 +5,19 @@ import { StorageService } from '../services/storage';
 
 const History: React.FC = () => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
+  const fetchLogs = async () => {
+    setLoading(true);
+    const data = await StorageService.getLogs();
+    setLogs(data);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    setLogs(StorageService.getLogs().reverse()); // Show newest first
+    fetchLogs();
   }, []);
 
   const filteredLogs = logs.filter(l => {
@@ -38,19 +46,10 @@ const History: React.FC = () => {
     }
   };
 
-  const downloadCSV = () => {
+  const handleDownload = async () => {
     const headers = [
-      'Date', 
-      'Plate Number', 
-      'Vehicle Model', 
-      'Vehicle Color', 
-      'First Name', 
-      'Family Name', 
-      'Mobile Number', 
-      'Attendant',
-      'Check In', 
-      'Check Out',
-      'Duration'
+      'Date', 'Plate Number', 'Vehicle Model', 'Vehicle Color', 'First Name', 
+      'Family Name', 'Mobile Number', 'Email', 'Attendant', 'Check In', 'Check Out', 'Duration'
     ];
     
     const rows = filteredLogs.map(log => [
@@ -60,7 +59,8 @@ const History: React.FC = () => {
       log.vehicleColor,
       log.firstName,
       log.familyName,
-      log.mobileNumbers,
+      log.mobileNumber,
+      log.email || '--',
       log.attendantName || '--',
       new Date(log.checkIn).toLocaleTimeString(),
       log.checkOut ? new Date(log.checkOut).toLocaleTimeString() : 'Parked',
@@ -82,17 +82,24 @@ const History: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 transition-colors duration-500">
-      {/* Frozen Header Section */}
       <div className="sticky top-0 z-30 bg-[#f8fafc] dark:bg-slate-950 -mx-5 px-5 sm:-mx-8 sm:px-8 lg:-mx-12 lg:px-12 pt-2 pb-6 space-y-6 shadow-[0_15px_15px_-15px_rgba(0,0,0,0.05)] transition-colors duration-500">
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Activity Logs</h2>
-            <p className="text-slate-500 dark:text-slate-400 mt-1 font-medium">Full history of parking check-ins and check-outs.</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-1 font-medium">History stored in Supabase cloud.</p>
           </div>
           <button 
-            onClick={downloadCSV}
+            onClick={handleDownload}
             className="inline-flex items-center justify-center px-8 py-4 bg-emerald-600 text-white font-black rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100 dark:shadow-emerald-900/20 active:scale-95 text-lg"
           >
             <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -134,15 +141,15 @@ const History: React.FC = () => {
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Date</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Vehicle</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Attendant</th>
-                <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Check In</th>
-                <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Check Out</th>
+                <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">In</th>
+                <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Out</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Duration</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-8 py-20 text-center text-slate-400 dark:text-slate-500 italic text-lg">No activity logs found matching your criteria.</td>
+                  <td colSpan={6} className="px-8 py-20 text-center text-slate-400 dark:text-slate-500 italic text-lg">No history logs found.</td>
                 </tr>
               ) : (
                 filteredLogs.map((log) => {
@@ -159,36 +166,25 @@ const History: React.FC = () => {
                         <div className="flex flex-col gap-1.5">
                           <div className="flex items-center gap-2">
                              <div className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs font-black rounded-lg border border-slate-200 dark:border-slate-700 uppercase w-fit shadow-sm">{log.plateNumber}</div>
-                             <span className="text-sm font-bold text-slate-900 dark:text-slate-300 uppercase truncate max-w-[150px]">{log.firstName} {log.familyName}</span>
+                             <span className="text-sm font-bold text-slate-900 dark:text-300 uppercase truncate max-w-[150px]">{log.firstName} {log.familyName}</span>
                           </div>
-                          <span className="text-xs text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">{log.vehicleModel}</span>
                         </div>
                       </td>
                       <td className="px-8 py-6 whitespace-nowrap">
                         <p className="text-sm font-bold text-slate-700 dark:text-slate-400 uppercase tracking-tight">{log.attendantName || '--'}</p>
                       </td>
                       <td className="px-8 py-6">
-                        <div className="flex flex-col">
-                          <span className="text-lg font-black text-blue-600 dark:text-blue-400">{checkIn.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          <span className="text-[10px] font-black text-blue-400 dark:text-blue-500 uppercase">{checkIn.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).split(' ')[1]}</span>
-                        </div>
+                        <span className="text-lg font-black text-blue-600 dark:text-blue-400">{checkIn.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       </td>
                       <td className="px-8 py-6">
                         {checkOut ? (
-                          <div className="flex flex-col">
-                            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{checkOut.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                            <span className="text-[10px] font-black text-emerald-400 dark:text-emerald-500 uppercase">{checkOut.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).split(' ')[1]}</span>
-                          </div>
+                          <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{checkOut.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         ) : (
                           <span className="px-3 py-1 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-black rounded-full uppercase tracking-widest shadow-sm">Parked</span>
                         )}
                       </td>
                       <td className="px-8 py-6">
-                        {durationLabel ? (
-                          <p className="text-lg font-black text-slate-700 dark:text-slate-300">{durationLabel}</p>
-                        ) : (
-                          <p className="text-lg font-black text-slate-300 dark:text-slate-600">--</p>
-                        )}
+                        <p className="text-lg font-black text-slate-700 dark:text-slate-300">{durationLabel || '--'}</p>
                       </td>
                     </tr>
                   );

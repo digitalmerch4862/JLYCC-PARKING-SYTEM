@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, ViewState, LogEntry } from './types';
 import { StorageService } from './services/storage';
 import { SoundService } from './services/audio';
+import { AutomationService } from './services/automation';
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -10,7 +11,6 @@ import VehicleList from './components/VehicleList';
 import History from './components/History';
 import CheckInView from './components/CheckInView';
 
-const RECIPIENT_EMAIL = 'rad4862@gmail.com';
 const MONITORING_INTERVAL = 60000; // Check every minute
 
 const App: React.FC = () => {
@@ -27,7 +27,6 @@ const App: React.FC = () => {
     const updateTheme = () => {
       const now = new Date();
       const hour = now.getHours();
-      // Light mode: 7 AM (7) to 5 PM (17). 17:00:00 starts dark mode.
       const isDark = hour < 7 || hour >= 17;
       
       if (isDark) {
@@ -37,49 +36,16 @@ const App: React.FC = () => {
       }
     };
 
-    const themeInterval = setInterval(updateTheme, MONITORING_INTERVAL);
-    updateTheme(); // Run immediately
-
-    // Long Stay Monitoring logic
-    const checkLongStays = () => {
-      const logs = StorageService.getLogs();
-      const activeLogs = logs.filter(log => !log.checkOut);
-      const now = new Date();
-      let updatedCount = 0;
-
-      activeLogs.forEach(log => {
-        const checkInTime = new Date(log.checkIn).getTime();
-        const diffMs = now.getTime() - checkInTime;
-        const diffHours = diffMs / (1000 * 60 * 60);
-
-        if (diffHours >= 24) {
-          const lastSent = log.lastFollowUpSentAt ? new Date(log.lastFollowUpSentAt).getTime() : 0;
-          const timeSinceLastEmail = (now.getTime() - lastSent) / (1000 * 60 * 60);
-
-          if (!log.lastFollowUpSentAt || timeSinceLastEmail >= 24) {
-            console.log(`[SIMULATED EMAIL] To: ${RECIPIENT_EMAIL}`);
-            console.log(`Subject: Long Stay Vehicle Detected - ${log.plateNumber}`);
-            console.log(`Message: Vehicle ${log.vehicleModel} (${log.plateNumber}) has been parked for ${Math.floor(diffHours)} hours without check-out.`);
-            
-            log.lastFollowUpSentAt = now.toISOString();
-            updatedCount++;
-          }
-        }
-      });
-
-      if (updatedCount > 0) {
-        logs.forEach(originalLog => {
-          const matchingActive = activeLogs.find(al => al.id === originalLog.id);
-          if (matchingActive && matchingActive.lastFollowUpSentAt) {
-            originalLog.lastFollowUpSentAt = matchingActive.lastFollowUpSentAt;
-          }
-        });
-        localStorage.setItem('jlycc_logs', JSON.stringify(logs));
-      }
+    // Scheduled tasks check
+    const runAutomation = () => {
+      AutomationService.processScheduledTasks();
     };
 
-    const interval = setInterval(checkLongStays, MONITORING_INTERVAL);
-    checkLongStays(); 
+    const automationInterval = setInterval(runAutomation, MONITORING_INTERVAL);
+    const themeInterval = setInterval(updateTheme, MONITORING_INTERVAL);
+    
+    updateTheme();
+    runAutomation();
 
     // Global sound effects
     const handleGlobalClick = (e: MouseEvent) => {
@@ -102,7 +68,7 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('click', handleGlobalClick);
       window.removeEventListener('mouseover', handleGlobalMouseOver);
-      clearInterval(interval);
+      clearInterval(automationInterval);
       clearInterval(themeInterval);
     };
   }, []);
@@ -148,7 +114,7 @@ const App: React.FC = () => {
       <div className="lg:hidden bg-slate-900 dark:bg-black px-6 py-4 sticky top-0 z-40 flex items-center justify-between shadow-lg">
         <div>
           <h1 className="text-xl font-black text-white leading-none">JLYCC</h1>
-          <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">Parking Monitoring</p>
+          <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">PARKING SYSTEM</p>
         </div>
         <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
           {currentUser.userName.charAt(0).toUpperCase()}
