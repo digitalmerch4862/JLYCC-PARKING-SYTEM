@@ -2,10 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { Vehicle, User } from '../types';
 import { StorageService, maskPhone } from '../services/storage';
+import { supabase } from '../services/supabase';
 
 interface VehicleListProps {
   isAdmin: boolean;
-  user: User; // Pass the actual user object
+  user: User;
 }
 
 const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
@@ -23,7 +24,7 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
 
   const [newVehicle, setNewVehicle] = useState<Vehicle>({
     plateNumber: '',
-    vehicleModel: '4 WHEELS', // This now represents No. of Wheels
+    vehicleModel: '4 WHEELS',
     vehicleColor: '',
     familyName: '',
     nickname: '',
@@ -34,7 +35,6 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
   const RELOCATION_MESSAGE = "Hello! This is the JLYCC AI Agent. When you have a moment, please come down to the parking lot to relocate your vehicle. Thank you!";
 
   const fetchVehicles = async () => {
-    setLoading(true);
     try {
       const data = await StorageService.getDatabase();
       setVehicles(data);
@@ -42,13 +42,34 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
       setDuplicateIds(duplicateSets.flat());
     } catch (err) {
       showToast("Failed to load registry.", "error");
-    } finally {
-      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchVehicles();
+    const initialFetch = async () => {
+      setLoading(true);
+      await fetchVehicles();
+      setLoading(false);
+    };
+
+    initialFetch();
+
+    // Set up Realtime Subscription for vehicles table
+    const subscription = supabase
+      .channel('vehicles_updates')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'vehicles' },
+        (payload) => {
+          console.log('Realtime change detected in vehicles:', payload);
+          fetchVehicles();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -110,7 +131,6 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
     if (!isSuper || !vehicleToDelete?.id) return;
     try {
       await StorageService.deleteVehicle(vehicleToDelete.id);
-      setVehicles(prev => prev.filter(v => v.id !== vehicleToDelete.id));
       showToast("Vehicle record deleted successfully.", "success");
     } catch (err) {
       showToast("Delete failed. Please try again.", "error");
@@ -150,7 +170,7 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
 
       {vehicleToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100 dark:border-slate-800 text-center">
+          <div className="bg-white dark:bg-slate-900 w-full max-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100 dark:border-slate-800 text-center">
             <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-4 tracking-tight">Delete Record?</h3>
             <div className="flex gap-4">
               <button onClick={() => setVehicleToDelete(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold rounded-2xl">Cancel</button>

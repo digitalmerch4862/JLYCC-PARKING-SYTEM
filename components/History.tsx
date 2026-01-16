@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { LogEntry, User } from '../types';
 import { StorageService } from '../services/storage';
+import { supabase } from '../services/supabase';
 
 interface HistoryProps {
   user: User;
@@ -16,14 +17,35 @@ const History: React.FC<HistoryProps> = ({ user }) => {
   const isSuper = user.isSuperAdmin === true;
 
   const fetchLogs = async () => {
-    setLoading(true);
     const data = await StorageService.getLogs();
     setLogs(data);
-    setLoading(false);
   };
 
   useEffect(() => {
-    fetchLogs();
+    const initialFetch = async () => {
+      setLoading(true);
+      await fetchLogs();
+      setLoading(false);
+    };
+
+    initialFetch();
+
+    // Set up Realtime Subscription for parking_logs table
+    const subscription = supabase
+      .channel('history_updates')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'parking_logs' },
+        (payload) => {
+          console.log('Realtime change detected in parking_logs (History):', payload);
+          fetchLogs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
   const filteredLogs = logs.filter(l => {

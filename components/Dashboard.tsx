@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { LogEntry, User, Vehicle } from '../types';
 import { StorageService, maskPhone, MAX_CAPACITY } from '../services/storage';
+import { supabase } from '../services/supabase';
 
 interface DashboardProps {
   user: User;
@@ -22,7 +23,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   const ADMIN_PHONE = "09694887065";
 
   const fetchData = async () => {
-    setLoading(true);
     const [allLogs, allVehicles] = await Promise.all([
       StorageService.getLogs(),
       StorageService.getDatabase()
@@ -30,11 +30,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     setLogs(allLogs);
     setVehicles(allVehicles);
     setActiveLogs(allLogs.filter(log => !log.checkOut));
-    setLoading(false);
   };
 
   useEffect(() => {
-    fetchData();
+    const initialFetch = async () => {
+      setLoading(true);
+      await fetchData();
+      setLoading(false);
+    };
+
+    initialFetch();
+
+    // Set up Realtime Subscription for both logs and vehicle count
+    const subscription = supabase
+      .channel('dashboard_updates')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'parking_logs' },
+        (payload) => {
+          console.log('Realtime change detected in parking_logs:', payload);
+          fetchData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'vehicles' },
+        (payload) => {
+          console.log('Realtime change detected in vehicles:', payload);
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, []);
 
   const handleCheckOut = async (logId: string) => {
@@ -42,6 +72,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     if (targetLog) {
       const updated = { ...targetLog, checkOut: new Date().toISOString() };
       await StorageService.updateLog(updated);
+      // Realtime will handle the refresh, but local update for speed
       await fetchData();
     }
   };
@@ -60,12 +91,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     window.location.href = type === 'call' ? `tel:${ADMIN_PHONE}` : `sms:${ADMIN_PHONE}`;
   };
 
-  // Only 4 WHEELS count towards the capacity limit. 
-  // 3 WHEELS and 2 WHEELS are excluded from the slot consumption logic.
   const occupiedCarSlots = activeLogs.filter(log => log.vehicleModel === '4 WHEELS').length;
   const availableSlots = Math.max(0, MAX_CAPACITY - occupiedCarSlots);
 
-  // Color logic: 0 is Red, 1-5 is Yellow, > 5 is Green
   const getOccupancyColorClasses = () => {
     if (availableSlots === 0) {
       return 'bg-red-50 border-red-100 text-red-600 dark:bg-red-500/10 dark:border-red-900/50 dark:text-red-400';
@@ -125,7 +153,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
-        {/* Occupancy Card */}
         <div className="bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center text-center">
           <div className="space-y-6 w-full max-w-[200px]">
             <p className="text-[12px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Available Slots</p>
