@@ -12,7 +12,7 @@ const AdminVerificationModal: React.FC<AdminVerificationModalProps> = ({ onVerif
 
   const handleVerify = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'nehemiah220') {
+    if (password === 'neh220') {
       onVerify();
     } else {
       setError(true);

@@ -63,11 +63,10 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
 
     const newLog: Omit<LogEntry, 'id'> = {
       plateNumber: selectedGroup.plateNumber,
-      vehicleModel: selectedGroup.vehicleModel,
+      vehicleModel: selectedGroup.vehicleModel, // Now represents Wheels count
       vehicleColor: selectedGroup.vehicleColor,
       familyName: primaryOwner.familyName,
-      firstName: primaryOwner.firstName,
-      middleName: primaryOwner.middleName,
+      nickname: primaryOwner.nickname,
       mobileNumber: primaryOwner.mobileNumber,
       email: primaryOwner.email,
       checkIn: new Date().toISOString(),
@@ -132,7 +131,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                           </span>
                         </div>
                         <div className="text-xs opacity-60 font-medium truncate mt-1">
-                          {g.owners.map(o => `${o.firstName} ${o.familyName}`).join(', ')}
+                          {g.owners.map(o => `${o.nickname} ${o.familyName}`).join(', ')}
                         </div>
                       </div>
                     ))
@@ -152,7 +151,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                   <p className="text-2xl font-black text-slate-900 dark:text-white">{selectedGroup.plateNumber}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-bold text-slate-700 dark:text-slate-300">{selectedGroup.vehicleModel}</p>
+                  <p className="text-lg font-bold text-slate-700 dark:text-300">{selectedGroup.vehicleModel}</p>
                   <p className="text-xs text-slate-500 font-bold uppercase">{selectedGroup.vehicleColor}</p>
                 </div>
               </div>
@@ -162,7 +161,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {selectedGroup.owners.map((owner, idx) => (
                     <div key={idx} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
-                      <p className="font-black text-slate-900 dark:text-white text-sm uppercase">{owner.firstName} {owner.familyName}</p>
+                      <p className="font-black text-slate-900 dark:text-white text-sm uppercase">{owner.nickname} {owner.familyName}</p>
                       <p className="text-xs text-slate-500 font-medium">{maskPhone(owner.mobileNumber)}</p>
                     </div>
                   ))}

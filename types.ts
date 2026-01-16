@@ -6,6 +6,7 @@ export interface User {
   password?: string;
   email?: string;
   roleName: Role;
+  isSuperAdmin?: boolean;
 }
 
 export interface Vehicle {
@@ -14,8 +15,7 @@ export interface Vehicle {
   vehicleModel: string;
   vehicleColor: string;
   familyName: string;
-  firstName: string;
-  middleName: string;
+  nickname: string;
   mobileNumber: string;
   email?: string;
 }
@@ -27,4 +27,13 @@ export interface LogEntry extends Omit<Vehicle, 'id'> {
   attendantName: string;
 }
 
-export type ViewState = 'Dashboard' | 'CheckIn' | 'VehicleList' | 'History';
+export interface LeaderboardEntry {
+  id?: string;
+  userName: string;
+  score: number;
+  total: number;
+  percentage: number;
+  date: string;
+}
+
+export type ViewState = 'Dashboard' | 'CheckIn' | 'VehicleList' | 'History' | 'Training' | 'Contact';

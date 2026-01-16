@@ -1,13 +1,19 @@
 
 import React, { useState, useEffect } from 'react';
-import { LogEntry } from '../types';
+import { LogEntry, User } from '../types';
 import { StorageService } from '../services/storage';
 
-const History: React.FC = () => {
+interface HistoryProps {
+  user: User;
+}
+
+const History: React.FC<HistoryProps> = ({ user }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+
+  const isSuper = user.isSuperAdmin === true;
 
   const fetchLogs = async () => {
     setLoading(true);
@@ -25,7 +31,8 @@ const History: React.FC = () => {
     const matchesSearch = searchTerm ? 
       (l.plateNumber.toLowerCase().includes(searchTerm.toLowerCase()) || 
        l.familyName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-       l.attendantName?.toLowerCase().includes(searchTerm.toLowerCase())) 
+       l.attendantName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+       l.vehicleModel.toLowerCase().includes(searchTerm.toLowerCase())) 
       : true;
     return matchesDate && matchesSearch;
   });
@@ -48,7 +55,7 @@ const History: React.FC = () => {
 
   const handleDownload = async () => {
     const headers = [
-      'Date', 'Plate Number', 'Vehicle Model', 'Vehicle Color', 'First Name', 
+      'Date', 'Plate Number', 'No. of Wheels', 'Vehicle Color', 'Nickname', 
       'Family Name', 'Mobile Number', 'Email', 'Attendant', 'Check In', 'Check Out', 'Duration'
     ];
     
@@ -57,7 +64,7 @@ const History: React.FC = () => {
       log.plateNumber,
       log.vehicleModel,
       log.vehicleColor,
-      log.firstName,
+      log.nickname,
       log.familyName,
       log.mobileNumber,
       log.email || '--',
@@ -98,15 +105,17 @@ const History: React.FC = () => {
             <h2 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Activity Logs</h2>
             <p className="text-slate-500 dark:text-slate-400 mt-1 font-medium">History stored in Supabase cloud.</p>
           </div>
-          <button 
-            onClick={handleDownload}
-            className="inline-flex items-center justify-center px-8 py-4 bg-emerald-600 text-white font-black rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100 dark:shadow-emerald-900/20 active:scale-95 text-lg"
-          >
-            <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Download CSV
-          </button>
+          {isSuper && (
+            <button 
+              onClick={handleDownload}
+              className="inline-flex items-center justify-center px-8 py-4 bg-emerald-600 text-white font-black rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-100 dark:shadow-emerald-900/20 active:scale-95 text-lg"
+            >
+              <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download CSV
+            </button>
+          )}
         </header>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -116,7 +125,7 @@ const History: React.FC = () => {
             </svg>
             <input
               type="text"
-              placeholder="Search plate, owner, or attendant..."
+              placeholder="Search plate, owner, attendant, or wheels..."
               className="w-full pl-14 pr-6 py-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-sm font-bold text-lg text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-700"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -139,7 +148,7 @@ const History: React.FC = () => {
             <thead className="bg-slate-50/50 dark:bg-slate-800/50">
               <tr>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Date</th>
-                <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Vehicle</th>
+                <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Wheels / Plate</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Attendant</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">In</th>
                 <th className="px-8 py-6 text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Out</th>
@@ -166,8 +175,9 @@ const History: React.FC = () => {
                         <div className="flex flex-col gap-1.5">
                           <div className="flex items-center gap-2">
                              <div className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-200 text-xs font-black rounded-lg border border-slate-200 dark:border-slate-700 uppercase w-fit shadow-sm">{log.plateNumber}</div>
-                             <span className="text-sm font-bold text-slate-900 dark:text-300 uppercase truncate max-w-[150px]">{log.firstName} {log.familyName}</span>
+                             <span className="text-[10px] font-black text-slate-500 uppercase">{log.vehicleModel}</span>
                           </div>
+                          <span className="text-sm font-bold text-slate-700 dark:text-400 uppercase truncate max-w-[150px]">{log.nickname} {log.familyName}</span>
                         </div>
                       </td>
                       <td className="px-8 py-6 whitespace-nowrap">
