@@ -49,9 +49,9 @@ Return ONLY a JSON object with these exact fields:
 
 IMPORTANT: Respond with ONLY valid JSON, no other text.`;
 
-      // Direct API call to Google Generative AI
+      // FIXED: Updated API endpoint to use v1 instead of v1beta
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: {
