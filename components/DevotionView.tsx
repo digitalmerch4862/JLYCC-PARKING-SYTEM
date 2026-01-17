@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -23,8 +22,8 @@ const DevotionView: React.FC = () => {
       // @ts-ignore
       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GOOGLE_API_KEY });
       const response = await ai.models.generateContent({
-        // @ts-ignore
-model: 'gemini-pro-vision',
+        // FIXED: Changed from 'gemini-pro-vision' to 'gemini-1.5-pro'
+        model: 'gemini-1.5-pro',
         contents: `Generate today's "Flourish 2026" daily devotion. Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`,
         config: {
           systemInstruction: `You are a spiritual mentor and devotional writer for the "Flourish 2026" app, based on the theme from Jesus Loves You Ministries International (JLYMI). 
@@ -38,7 +37,7 @@ Your goal is to generate a daily devotion that empowers believers to live out th
    - Paragraph 1: Connect the scripture to the "Flourish" theme (Palm trees, Cedars of Lebanon, being planted in God's house).
    - Paragraph 2: Practical application for modern life (work, family, and ministry).
 4. Prophetic Declaration: A first-person "I am" statement the user can speak aloud.
-5. Today’s Seed (Action Step): One practical, small task to "plant" a seed of growth today.
+5. Today's Seed (Action Step): One practical, small task to "plant" a seed of growth today.
 
 ### Tone & Style:
 - Encouraging, prophetic, and authoritative yet warm.
