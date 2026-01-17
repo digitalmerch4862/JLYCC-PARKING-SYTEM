@@ -24,7 +24,7 @@ const DevotionView: React.FC = () => {
       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GOOGLE_API_KEY });
       const response = await ai.models.generateContent({
         // @ts-ignore
-        model: 'gemini-1.5-flash-001',
+        model: 'gemini-1.5-flash-002',
         contents: `Generate today's "Flourish 2026" daily devotion. Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`,
         config: {
           systemInstruction: `You are a spiritual mentor and devotional writer for the "Flourish 2026" app, based on the theme from Jesus Loves You Ministries International (JLYMI). 
