@@ -14,6 +14,7 @@ import TrainingView from './components/TrainingView';
 import ContactView from './components/ContactView';
 import PastorView from './components/PastorView';
 import DevotionView from './components/DevotionView';
+import BibleView from './components/BibleView';
 
 const MONITORING_INTERVAL = 60000;
 
@@ -96,6 +97,8 @@ const App: React.FC = () => {
         return <PastorView />;
       case 'Devotion':
         return <DevotionView />;
+      case 'Bible':
+        return <BibleView />;
       default:
         return <Dashboard user={currentUser} onAction={() => setActiveView('CheckIn')} />;
     }

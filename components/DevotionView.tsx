@@ -1,207 +1,136 @@
-import React, { useState, useEffect } from 'react';
 
-interface DevotionData {
-  dailyTitle: string;
-  anchorScripture: string;
-  reflectionParagraph1: string;
-  reflectionParagraph2: string;
-  propheticDeclaration: string;
-  actionStep: string;
-}
+import React from 'react';
 
 const DevotionView: React.FC = () => {
-  const [devotion, setDevotion] = useState<DevotionData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const generateDevotion = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
-      
-      if (!apiKey) {
-        throw new Error("API Key not found. Please set VITE_GOOGLE_API_KEY in your environment variables.");
-      }
-
-      const prompt = `You are a spiritual mentor and devotional writer for the "Flourish 2026" app, based on the theme from Jesus Loves You Ministries International (JLYMI). 
-
-Generate today's "Flourish 2026" daily devotion for ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
-
-Your goal is to generate a daily devotion that empowers believers to live out the "Year of Flourish."
-
-### Structure of Every Response (MUST BE VALID JSON):
-Return ONLY a JSON object with these exact fields:
-{
-  "dailyTitle": "A catchy, encouraging title (e.g., 'Deep Roots, High Heights')",
-  "anchorScripture": "One verse from the Bible (focusing heavily on Psalm 92:12-14, John 1, or themes of growth, strength, and victory)",
-  "reflectionParagraph1": "Connect the scripture to the 'Flourish' theme (Palm trees, Cedars of Lebanon, being planted in God's house)",
-  "reflectionParagraph2": "Practical application for modern life (work, family, and ministry)",
-  "propheticDeclaration": "A first-person 'I am' statement the user can speak aloud",
-  "actionStep": "One practical, small task to 'plant' a seed of growth today"
-}
-
-### Tone & Style:
-- Encouraging, prophetic, and authoritative yet warm.
-- Focus on resilience ("the palm tree bends but doesn't break") and longevity ("bearing fruit in old age").
-- Use the term "Flourish" frequently.
-- Keep the language accessible for church members of all ages.
-
-IMPORTANT: Respond with ONLY valid JSON, no other text.`;
-
-      const response = await fetch(
-`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: prompt
-                  }
-                ]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048
-            }
-          })
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`API Error: ${errorData.error?.message || 'Unknown error'}`);
-      }
-
-      const data = await response.json();
-      const text = data.candidates[0].content.parts[0].text;
-      
-      const devotionData = JSON.parse(text);
-      setDevotion(devotionData);
-      
-      localStorage.setItem('jlycc_daily_devotion', JSON.stringify({
-        date: new Date().toDateString(),
-        data: devotionData
-      }));
-    } catch (err) {
-      console.error("Devotion generation failed:", err);
-      setError(err instanceof Error ? err.message : "Unable to generate today's devotion. Please check your connection and try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    const cached = localStorage.getItem('jlycc_daily_devotion');
-    if (cached) {
-      try {
-        const { date, data } = JSON.parse(cached);
-        if (date === new Date().toDateString()) {
-          setDevotion(data);
-          return;
-        }
-      } catch (e) {
-        console.error("Failed to load cached devotion:", e);
-      }
-    }
-    generateDevotion();
-  }, []);
-
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">
-      {/* Flourish Banner */}
-      <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-[3rem] p-8 sm:p-12 text-white shadow-2xl relative overflow-hidden">
+    <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">
+      
+      {/* Header Banner */}
+      <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-[3rem] p-10 sm:p-14 text-white shadow-2xl relative overflow-hidden text-center">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl"></div>
-        <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-6">
-          <div className="space-y-2 text-center sm:text-left">
-            <h2 className="text-4xl sm:text-6xl font-black tracking-tighter leading-none">FLOURISH <span className="text-emerald-300">2026</span></h2>
-            <p className="text-emerald-100 font-bold uppercase tracking-[0.3em] text-xs sm:text-sm">Jesus Loves You Ministries International</p>
-          </div>
-          <div className="shrink-0 flex items-center gap-3 bg-white/20 px-6 py-3 rounded-2xl backdrop-blur-md border border-white/20">
-             <div className="w-3 h-3 bg-emerald-300 rounded-full animate-pulse"></div>
-             <span className="text-sm font-black uppercase tracking-widest">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} Devotion</span>
-          </div>
+        <div className="relative z-10 space-y-4">
+          <p className="text-emerald-200 font-bold uppercase tracking-[0.3em] text-sm">Declaration of Faith</p>
+          <h2 className="text-4xl sm:text-6xl font-black tracking-tighter leading-none">YEAR TO <br className="sm:hidden" /><span className="text-emerald-300">FLOURISH</span></h2>
         </div>
       </div>
 
-      {loading && (
-        <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-20 flex flex-col items-center justify-center space-y-6 shadow-xl border border-slate-100 dark:border-slate-800">
-           <div className="w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
-           <p className="text-slate-500 font-black uppercase tracking-[0.2em] text-sm animate-pulse">Preparing Today's Seed...</p>
-        </div>
-      )}
+      {/* Main Content */}
+      <div className="bg-white dark:bg-slate-900 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl overflow-hidden">
+        <div className="p-8 sm:p-16 space-y-12">
+          
+          {/* Intro */}
+          <div className="text-center space-y-6">
+            <h3 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Church Family, This is Our Declaration</h3>
+            <p className="text-xl text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
+              We are not stepping into a year of struggle, delay, or defeat—we are stepping into a year of growth, fruitfulness, strength, and Kingdom impact.
+            </p>
+          </div>
 
-      {error && !loading && (
-        <div className="bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 p-12 rounded-[3rem] text-center space-y-6">
-           <div className="w-20 h-20 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mx-auto text-4xl">⚠️</div>
-           <p className="text-red-800 dark:text-red-300 font-bold text-xl">{error}</p>
-           <button onClick={generateDevotion} className="px-10 py-4 bg-red-600 text-white font-black rounded-2xl hover:bg-red-700 transition-all uppercase tracking-widest">Retry Connection</button>
-        </div>
-      )}
+          <div className="border-t border-slate-100 dark:border-slate-800 my-8"></div>
 
-      {devotion && !loading && (
-        <div className="space-y-8">
-          <div className="bg-white dark:bg-slate-900 p-8 sm:p-14 rounded-[4rem] border border-slate-100 dark:border-slate-800 shadow-2xl space-y-12">
-            
-            {/* Title & Scripture */}
-            <div className="space-y-6 text-center">
-              <h1 className="text-3xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight leading-none">{devotion.dailyTitle}</h1>
-              <div className="relative inline-block px-8 py-4 bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl border border-emerald-100 dark:border-emerald-900/30">
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Anchor Scripture</span>
-                <p className="text-xl sm:text-2xl font-black text-emerald-700 dark:text-emerald-400 italic">"{devotion.anchorScripture}"</p>
+          {/* Declaration Sections */}
+          <div className="space-y-10">
+            {/* Planted */}
+            <div className="space-y-4">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-full text-[11px] font-black uppercase tracking-widest shadow-sm">
+                 Psalm 92:13–14
+              </div>
+              <h4 className="text-3xl font-black text-slate-900 dark:text-white">We Are Planted and We Will Flourish</h4>
+              <p className="text-lg text-slate-600 dark:text-slate-300 font-medium italic border-l-4 border-emerald-500 pl-4">
+                "Those who are planted in the house of the Lord shall flourish in the courts of our God."
+              </p>
+              <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl text-slate-700 dark:text-slate-300 font-bold leading-relaxed space-y-2">
+                <p>We declare today:</p>
+                <ul className="list-disc list-inside space-y-1 marker:text-emerald-500">
+                  <li>We are planted in God’s house.</li>
+                  <li>We are rooted in His presence.</li>
+                  <li>We are established in His Word.</li>
+                  <li>And because we are planted we will flourish!</li>
+                </ul>
               </div>
             </div>
 
-            {/* Reflection */}
-            <div className="prose prose-slate dark:prose-invert max-w-none">
-              <div className="space-y-8 text-lg sm:text-xl text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-                <p className="first-letter:text-5xl first-letter:font-black first-letter:text-emerald-600 first-letter:mr-3 first-letter:float-left">
-                  {devotion.reflectionParagraph1}
-                </p>
-                <p>{devotion.reflectionParagraph2}</p>
+            {/* Fruit */}
+            <div className="space-y-4">
+              <h4 className="text-3xl font-black text-slate-900 dark:text-white">We Will Bear Much Fruit</h4>
+              <p className="text-lg text-slate-600 dark:text-slate-300 font-medium">
+                Flourishing is not just a feeling; flourishing is bearing much fruit.
+              </p>
+              <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl text-slate-700 dark:text-slate-300 font-bold leading-relaxed space-y-2">
+                <p>This year we declare:</p>
+                <ul className="list-disc list-inside space-y-1 marker:text-emerald-500">
+                  <li>Our lives will be productive.</li>
+                  <li>Our families will be blessed.</li>
+                  <li>Our faith will increase.</li>
+                  <li>Our ministries will grow.</li>
+                  <li>Our purpose will become clearer.</li>
+                  <li>Our testimonies will be undeniable.</li>
+                </ul>
               </div>
             </div>
 
-            {/* Prophetic Declaration */}
-            <div className="bg-slate-900 dark:bg-emerald-600 p-8 sm:p-12 rounded-[3rem] shadow-xl text-white space-y-6 text-center relative overflow-hidden">
-               <div className="absolute top-0 left-0 w-full h-1 bg-white/20"></div>
-               <h3 className="text-xs font-black uppercase tracking-[0.4em] text-emerald-300 dark:text-white/70">Prophetic Declaration</h3>
-               <p className="text-2xl sm:text-4xl font-black tracking-tight leading-snug">
-                 {devotion.propheticDeclaration}
-               </p>
+            {/* Strength */}
+            <div className="space-y-4">
+              <h4 className="text-3xl font-black text-slate-900 dark:text-white">We Will Be Strong and Unshakable</h4>
+              <p className="text-lg text-slate-600 dark:text-slate-300 font-medium">
+                We declare that we will flourish like the palm tree—resilient and victorious. We declare that we will grow like the cedar of Lebanon—strong, stable, and enduring.
+              </p>
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-2xl text-blue-800 dark:text-blue-200 font-bold leading-relaxed">
+                <p>Even when pressure comes, we will not collapse.</p>
+                <p>Even when challenges rise, we will not retreat.</p>
+                <p>We are strengthened by the Lord, and we will stand firm.</p>
+              </div>
             </div>
 
-            {/* Action Step */}
-            <div className="p-8 bg-slate-50 dark:bg-slate-800/50 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 space-y-4">
-               <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg">🌱</div>
-                  <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest">Today's Seed</h3>
-               </div>
-               <p className="text-lg text-slate-700 dark:text-slate-300 font-bold leading-relaxed">
-                 {devotion.actionStep}
-               </p>
+            {/* Soul Winners */}
+            <div className="space-y-4">
+              <h4 className="text-3xl font-black text-slate-900 dark:text-white">We Are Soul Winners</h4>
+              <p className="text-lg text-slate-600 dark:text-slate-300 font-medium">
+                This year, we will not just grow personally—we will grow the Kingdom. Because we believe that the greatest fruit we can bear is souls for the Kingdom of God.
+              </p>
+              <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl text-slate-700 dark:text-slate-300 font-bold leading-relaxed space-y-2">
+                <p>We declare:</p>
+                <ul className="list-disc list-inside space-y-1 marker:text-emerald-500">
+                  <li>We will win souls.</li>
+                  <li>We will preach Jesus with boldness.</li>
+                  <li>We will invite, reach, and restore.</li>
+                  <li>We will be a “tree of life” to our communities.</li>
+                </ul>
+              </div>
             </div>
           </div>
 
-          <div className="flex justify-center">
-             <button 
-               onClick={generateDevotion}
-               className="flex items-center gap-3 px-8 py-4 bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 font-black rounded-2xl border border-slate-100 dark:border-slate-800 hover:text-emerald-500 transition-all text-xs uppercase tracking-widest"
-             >
-               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-               Refresh Devotion
-             </button>
+          <div className="border-t border-slate-100 dark:border-slate-800 my-8"></div>
+
+          {/* Final Declaration */}
+          <div className="bg-slate-900 dark:bg-black p-8 sm:p-12 rounded-[2.5rem] text-center space-y-8 relative overflow-hidden">
+             <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-emerald-500"></div>
+             <h3 className="text-2xl font-black text-white uppercase tracking-widest">Final Declaration</h3>
+             <div className="text-xl sm:text-2xl font-bold text-slate-300 leading-relaxed space-y-4">
+               <p>Church, lift your faith and declare it loud:</p>
+               <p className="text-white font-black">This is our year to flourish!</p>
+               <p>We are planted! We are growing! We are fruitful!</p>
+               <p>We are winning souls! We are blessed! We are unstoppable!</p>
+               <p className="text-emerald-400">And we will flourish in every area—spiritually, financially, emotionally, and in ministry.</p>
+             </div>
           </div>
+
+          {/* Video Button */}
+          <div className="pt-8 text-center pb-4">
+            <a 
+              href="https://www.youtube.com/watch?v=GiURvSANcmw&t=3428s"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-3 px-8 py-5 bg-[#FF0000] text-white font-black rounded-2xl hover:bg-red-700 transition-all shadow-xl shadow-red-500/20 text-lg uppercase tracking-wide group hover:scale-105"
+            >
+              <svg className="w-8 h-8 fill-current" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              <span>Watch the Message</span>
+            </a>
+            <p className="text-xs font-bold text-slate-400 mt-4 uppercase tracking-widest">Opens in new tab</p>
+          </div>
+
         </div>
-      )}
+      </div>
 
       <footer className="text-center text-slate-400 dark:text-slate-600 text-[10px] font-black uppercase tracking-[0.3em] pt-8">
         Year of Flourish 2026 • JLYMI • JLYCC
