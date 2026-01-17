@@ -49,7 +49,6 @@ Return ONLY a JSON object with these exact fields:
 
 IMPORTANT: Respond with ONLY valid JSON, no other text.`;
 
-      // FIXED: Updated API endpoint to use v1 instead of v1beta
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
@@ -71,13 +70,7 @@ IMPORTANT: Respond with ONLY valid JSON, no other text.`;
               temperature: 0.7,
               topK: 40,
               topP: 0.95,
-              maxOutputTokens: 2048,
-              generationConfig: {
-  temperature: 0.7,
-  topK: 40,
-  topP: 0.95,
-  maxOutputTokens: 2048
-}
+              maxOutputTokens: 2048
             }
           })
         }
@@ -91,11 +84,9 @@ IMPORTANT: Respond with ONLY valid JSON, no other text.`;
       const data = await response.json();
       const text = data.candidates[0].content.parts[0].text;
       
-      // Parse the JSON response
       const devotionData = JSON.parse(text);
       setDevotion(devotionData);
       
-      // Store in local storage to prevent multiple calls on the same day
       localStorage.setItem('jlycc_daily_devotion', JSON.stringify({
         date: new Date().toDateString(),
         data: devotionData
