@@ -12,12 +12,14 @@ import History from './components/History';
 import CheckInView from './components/CheckInView';
 import TrainingView from './components/TrainingView';
 import ContactView from './components/ContactView';
+import PastorView from './components/PastorView';
+import DevotionView from './components/DevotionView';
 
 const MONITORING_INTERVAL = 60000;
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeView, setActiveView] = useState<ViewState>('Dashboard');
+  const [activeView, setActiveView] = useState<ViewState>('Parking');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -78,18 +80,22 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     switch (activeView) {
-      case 'Dashboard':
+      case 'Parking':
         return <Dashboard user={currentUser} onAction={() => setActiveView('CheckIn')} />;
       case 'VehicleList':
         return <VehicleList isAdmin={currentUser.roleName === 'Admin'} user={currentUser} />;
       case 'History':
         return <History user={currentUser} />;
       case 'CheckIn':
-        return <CheckInView user={currentUser} onComplete={() => setActiveView('Dashboard')} />;
+        return <CheckInView user={currentUser} onComplete={() => setActiveView('Parking')} />;
       case 'Training':
         return <TrainingView onQuit={() => handleViewChange('Contact')} />;
       case 'Contact':
         return <ContactView />;
+      case 'Pastor':
+        return <PastorView />;
+      case 'Devotion':
+        return <DevotionView />;
       default:
         return <Dashboard user={currentUser} onAction={() => setActiveView('CheckIn')} />;
     }
@@ -102,7 +108,7 @@ const App: React.FC = () => {
       <div className="lg:hidden bg-slate-900 dark:bg-black px-6 py-4 sticky top-0 z-40 flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-sm">{currentUser.userName.charAt(0).toUpperCase()}</div>
-          <div><h1 className="text-xl font-black text-white leading-none">JLYCC</h1><p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">PARKING SYSTEM</p></div>
+          <div><h1 className="text-xl font-black text-white leading-none">JLYCC</h1></div>
         </div>
         <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 text-slate-400 hover:text-white transition-colors" aria-label="Open Menu">
           <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 6h16M4 12h16m-7 6h7" /></svg>

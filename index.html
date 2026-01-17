@@ -3,8 +3,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JLYCC Parking</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>JLYCC</title>
     
     <!-- PWA & Icons -->
     <link rel="manifest" href="/site.webmanifest">
@@ -13,9 +13,12 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="shortcut icon" href="/favicon.ico">
     <meta name="theme-color" content="#2563eb">
+    
+    <!-- Mobile App Capabilities -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="JLYCC Parking">
+    <meta name="apple-mobile-web-app-title" content="JLYCC">
+    <meta name="mobile-web-app-capable" content="yes">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -35,10 +38,16 @@
         body {
             font-family: 'Inter', sans-serif;
             transition: background-color 0.5s ease;
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: contain;
         }
         /* Global transition for theme switch */
         .theme-transition * {
             transition: background-color 0.5s ease, border-color 0.5s ease, color 0.5s ease, shadow 0.5s ease;
+        }
+        /* Senior friendly button sizing */
+        button {
+            touch-action: manipulation;
         }
     </style>
 <script type="importmap">

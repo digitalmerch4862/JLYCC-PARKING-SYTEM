@@ -1,6 +1,7 @@
+
 {
-  "name": "JLYCC Parking Monitoring",
-  "short_name": "JLYCC Parking",
+  "name": "JLYCC",
+  "short_name": "JLYCC",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",

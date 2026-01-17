@@ -225,7 +225,7 @@ const TrainingView: React.FC<TrainingViewProps> = ({ onQuit }) => {
       <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
         <header className="text-center space-y-4 pt-12">
           <h2 className="text-5xl sm:text-7xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">
-            Are You a <span className="text-blue-600">Legit</span> Driver?
+            Driving Skills <span className="text-blue-600">Assessment</span>
           </h2>
           <p className="text-slate-600 dark:text-slate-400 font-medium text-lg sm:text-2xl max-w-2xl mx-auto leading-relaxed">
             Survive 5 waves of questions. Maintain 60% per wave to stay in the game.

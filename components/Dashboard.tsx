@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { LogEntry, User, Vehicle } from '../types';
 import { StorageService, maskPhone, MAX_CAPACITY } from '../services/storage';
 import { supabase } from '../services/supabase';
+import TrainingView from './TrainingView';
 
 interface DashboardProps {
   user: User;
@@ -240,6 +241,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {!isAdmin && (
+        <div className="pt-12 border-t border-slate-100 dark:border-slate-800">
+           <TrainingView />
         </div>
       )}
     </div>

@@ -1,5 +1,5 @@
 {
-  "name": "JLYCC Parking System",
+  "name": "JLYCC",
   "description": "A comprehensive parking management system for tracking vehicle check-ins, check-outs, and registry management with role-based access control.",
   "requestFramePermissions": []
 }
