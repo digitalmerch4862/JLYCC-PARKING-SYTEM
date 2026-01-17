@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 interface DevotionData {
   dailyTitle: string;
@@ -19,49 +19,50 @@ const DevotionView: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // @ts-ignore
-      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GOOGLE_API_KEY });
-      const response = await ai.models.generateContent({
-        // FIXED: Changed from 'gemini-pro-vision' to 'gemini-1.5-pro'
-        model: 'gemini-1.5-flash',
-        contents: `Generate today's "Flourish 2026" daily devotion. Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`,
-        config: {
-          systemInstruction: `You are a spiritual mentor and devotional writer for the "Flourish 2026" app, based on the theme from Jesus Loves You Ministries International (JLYMI). 
+      // FIXED: Use the correct API initialization
+      const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GOOGLE_API_KEY);
+      
+      // FIXED: Use getGenerativeModel method with correct model name
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
+      });
+
+      const prompt = `You are a spiritual mentor and devotional writer for the "Flourish 2026" app, based on the theme from Jesus Loves You Ministries International (JLYMI). 
+
+Generate today's "Flourish 2026" daily devotion for ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 
 Your goal is to generate a daily devotion that empowers believers to live out the "Year of Flourish."
 
-### Structure of Every Response:
-1. Daily Title: A catchy, encouraging title (e.g., "Deep Roots, High Heights").
-2. Anchor Scripture: One verse from the Bible (focusing heavily on Psalm 92:12-14, John 1, or themes of growth, strength, and victory).
-3. The Flourish Reflection: A 2-paragraph teaching. 
-   - Paragraph 1: Connect the scripture to the "Flourish" theme (Palm trees, Cedars of Lebanon, being planted in God's house).
-   - Paragraph 2: Practical application for modern life (work, family, and ministry).
-4. Prophetic Declaration: A first-person "I am" statement the user can speak aloud.
-5. Today's Seed (Action Step): One practical, small task to "plant" a seed of growth today.
+### Structure of Every Response (MUST BE VALID JSON):
+Return ONLY a JSON object with these exact fields:
+{
+  "dailyTitle": "A catchy, encouraging title (e.g., 'Deep Roots, High Heights')",
+  "anchorScripture": "One verse from the Bible (focusing heavily on Psalm 92:12-14, John 1, or themes of growth, strength, and victory)",
+  "reflectionParagraph1": "Connect the scripture to the 'Flourish' theme (Palm trees, Cedars of Lebanon, being planted in God's house)",
+  "reflectionParagraph2": "Practical application for modern life (work, family, and ministry)",
+  "propheticDeclaration": "A first-person 'I am' statement the user can speak aloud",
+  "actionStep": "One practical, small task to 'plant' a seed of growth today"
+}
 
 ### Tone & Style:
 - Encouraging, prophetic, and authoritative yet warm.
 - Focus on resilience ("the palm tree bends but doesn't break") and longevity ("bearing fruit in old age").
 - Use the term "Flourish" frequently.
-- Keep the language accessible for church members of all ages.`,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              dailyTitle: { type: Type.STRING },
-              anchorScripture: { type: Type.STRING },
-              reflectionParagraph1: { type: Type.STRING },
-              reflectionParagraph2: { type: Type.STRING },
-              propheticDeclaration: { type: Type.STRING },
-              actionStep: { type: Type.STRING },
-            },
-            required: ["dailyTitle", "anchorScripture", "reflectionParagraph1", "reflectionParagraph2", "propheticDeclaration", "actionStep"]
-          }
-        },
-      });
+- Keep the language accessible for church members of all ages.
 
-      const data = JSON.parse(response.text || '{}');
+IMPORTANT: Respond with ONLY valid JSON, no other text.`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      
+      // Parse the JSON response
+      const data = JSON.parse(text);
       setDevotion(data);
+      
       // Store in local storage to prevent multiple calls on the same day
       localStorage.setItem('jlycc_daily_devotion', JSON.stringify({
         date: new Date().toDateString(),
