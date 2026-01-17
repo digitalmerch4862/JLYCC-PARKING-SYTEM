@@ -72,7 +72,12 @@ IMPORTANT: Respond with ONLY valid JSON, no other text.`;
               topK: 40,
               topP: 0.95,
               maxOutputTokens: 2048,
-              responseMimeType: "application/json"
+              generationConfig: {
+  temperature: 0.7,
+  topK: 40,
+  topP: 0.95,
+  maxOutputTokens: 2048
+}
             }
           })
         }
