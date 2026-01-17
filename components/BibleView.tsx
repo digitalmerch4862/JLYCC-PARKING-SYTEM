@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 
 interface BibleVerse {
@@ -17,22 +16,28 @@ interface BibleResponse {
 }
 
 const BibleView: React.FC = () => {
+  // Set default verse to John 3:16
   const [query, setQuery] = useState('John 3:16');
   const [searchTrigger, setSearchTrigger] = useState('John 3:16');
+  
   const [version, setVersion] = useState<'KJV' | 'NIV'>('KJV');
   const [bibleData, setBibleData] = useState<BibleResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Only fetch for KJV as it is the public domain version we support natively
-    if (version === 'NIV') return;
-
     const fetchBible = async () => {
       setLoading(true);
       setError('');
+      
+      // MAPPING: bible-api.com does not support NIV (Copyright). 
+      // We use 'web' (World English Bible) as a modern English fallback 
+      // so the app functions exactly like KJV (displaying text locally).
+      const apiTranslation = version === 'NIV' ? 'web' : 'kjv';
+
       try {
-        const res = await fetch(`https://bible-api.com/${encodeURIComponent(searchTrigger)}?translation=kjv`);
+        const res = await fetch(`https://bible-api.com/${encodeURIComponent(searchTrigger)}?translation=${apiTranslation}`);
+        
         if (!res.ok) throw new Error('Verse not found');
         const data = await res.json();
         setBibleData(data);
@@ -50,11 +55,6 @@ const BibleView: React.FC = () => {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) setSearchTrigger(query);
-  };
-
-  const openNIV = () => {
-    const url = `https://www.biblegateway.com/passage/?search=${encodeURIComponent(searchTrigger)}&version=NIV`;
-    window.open(url, '_blank');
   };
 
   return (
@@ -110,11 +110,9 @@ const BibleView: React.FC = () => {
            </form>
         </div>
 
-        {/* Content Area */}
+        {/* Content Area - Unified for both versions */}
         <div className="flex-1 py-8">
-           {version === 'KJV' && (
-             <>
-               {loading ? (
+             {loading ? (
                  <div className="flex flex-col items-center justify-center h-48 space-y-4">
                     <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
                     <p className="text-slate-400 text-xs font-black uppercase tracking-widest animate-pulse">Opening Scripture...</p>
@@ -128,7 +126,9 @@ const BibleView: React.FC = () => {
                  <div className="space-y-6 animate-in fade-in duration-500">
                     <div className="text-center space-y-2 pb-6 border-b border-slate-50 dark:border-slate-800/50">
                        <h3 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">{bibleData.reference}</h3>
-                       <p className="text-slate-400 text-xs font-black uppercase tracking-[0.2em]">King James Version</p>
+                       <p className="text-slate-400 text-xs font-black uppercase tracking-[0.2em]">
+                         {version === 'KJV' ? 'King James Version' : 'Modern English (WEB)'}
+                       </p>
                     </div>
                     <div className="prose prose-lg dark:prose-invert max-w-none">
                        {bibleData.verses.map((verse, idx) => (
@@ -142,33 +142,6 @@ const BibleView: React.FC = () => {
                     </div>
                  </div>
                ) : null}
-             </>
-           )}
-
-           {version === 'NIV' && (
-             <div className="flex flex-col items-center justify-center h-full text-center space-y-8 py-12 animate-in fade-in slide-in-from-bottom-4">
-                <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-[2rem] flex items-center justify-center text-4xl shadow-inner">
-                   📖
-                </div>
-                <div className="max-w-md mx-auto space-y-3">
-                   <h3 className="text-2xl font-black text-slate-900 dark:text-white">New International Version</h3>
-                   <p className="text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                     The NIV is copyright protected and cannot be displayed directly here. However, you can read this passage on BibleGateway.
-                   </p>
-                </div>
-                <div className="p-6 bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl border border-indigo-100 dark:border-indigo-500/20 w-full max-w-sm">
-                   <p className="text-xs font-black text-indigo-400 uppercase tracking-widest mb-2">Selected Passage</p>
-                   <p className="text-xl font-black text-indigo-900 dark:text-indigo-200">{searchTrigger}</p>
-                </div>
-                <button 
-                  onClick={openNIV}
-                  className="px-10 py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/20 transition-all hover:scale-105 active:scale-95 flex items-center gap-3"
-                >
-                  <span>Read on BibleGateway</span>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                </button>
-             </div>
-           )}
         </div>
       </div>
     </div>
