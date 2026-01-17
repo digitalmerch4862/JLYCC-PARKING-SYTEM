@@ -50,7 +50,7 @@ Return ONLY a JSON object with these exact fields:
 IMPORTANT: Respond with ONLY valid JSON, no other text.`;
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: {
