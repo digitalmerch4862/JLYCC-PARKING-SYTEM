@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 interface DevotionData {
   dailyTitle: string;
@@ -19,16 +18,11 @@ const DevotionView: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // FIXED: Use the correct API initialization
-      const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GOOGLE_API_KEY);
+      const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
       
-      // FIXED: Use getGenerativeModel method with correct model name
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
-      });
+      if (!apiKey) {
+        throw new Error("API Key not found. Please set VITE_GOOGLE_API_KEY in your environment variables.");
+      }
 
       const prompt = `You are a spiritual mentor and devotional writer for the "Flourish 2026" app, based on the theme from Jesus Loves You Ministries International (JLYMI). 
 
@@ -55,22 +49,55 @@ Return ONLY a JSON object with these exact fields:
 
 IMPORTANT: Respond with ONLY valid JSON, no other text.`;
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
+      // Direct API call to Google Generative AI
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: prompt
+                  }
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+              responseMimeType: "application/json"
+            }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`API Error: ${errorData.error?.message || 'Unknown error'}`);
+      }
+
+      const data = await response.json();
+      const text = data.candidates[0].content.parts[0].text;
       
       // Parse the JSON response
-      const data = JSON.parse(text);
-      setDevotion(data);
+      const devotionData = JSON.parse(text);
+      setDevotion(devotionData);
       
       // Store in local storage to prevent multiple calls on the same day
       localStorage.setItem('jlycc_daily_devotion', JSON.stringify({
         date: new Date().toDateString(),
-        data: data
+        data: devotionData
       }));
     } catch (err) {
       console.error("Devotion generation failed:", err);
-      setError("Unable to generate today's devotion. Please check your connection and try again.");
+      setError(err instanceof Error ? err.message : "Unable to generate today's devotion. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -79,10 +106,14 @@ IMPORTANT: Respond with ONLY valid JSON, no other text.`;
   useEffect(() => {
     const cached = localStorage.getItem('jlycc_daily_devotion');
     if (cached) {
-      const { date, data } = JSON.parse(cached);
-      if (date === new Date().toDateString()) {
-        setDevotion(data);
-        return;
+      try {
+        const { date, data } = JSON.parse(cached);
+        if (date === new Date().toDateString()) {
+          setDevotion(data);
+          return;
+        }
+      } catch (e) {
+        console.error("Failed to load cached devotion:", e);
       }
     }
     generateDevotion();
