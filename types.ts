@@ -25,6 +25,7 @@ export interface LogEntry extends Omit<Vehicle, 'id'> {
   checkIn: string; // ISO String
   checkOut: string | null; // ISO String or null
   attendantName: string;
+  parkingLocation?: string;
 }
 
 export interface LeaderboardEntry {

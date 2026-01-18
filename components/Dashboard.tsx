@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { LogEntry, User, Vehicle } from '../types';
 import { StorageService, maskPhone, MAX_CAPACITY } from '../services/storage';
@@ -139,8 +138,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     window.location.href = type === 'call' ? `tel:${ADMIN_PHONE}` : `sms:${ADMIN_PHONE}`;
   };
 
-  const occupiedCarSlots = activeLogs.filter(log => log.vehicleModel === '4 WHEELS').length;
-  const availableSlots = Math.max(0, MAX_CAPACITY - occupiedCarSlots);
+  // Unified calculation logic
+  const streetParkedCount = activeLogs.filter(l => l.parkingLocation === 'Street').length;
+  const coveredParkedCount = activeLogs.filter(l => l.parkingLocation !== 'Street').length;
+  const availableSlots = Math.max(0, MAX_CAPACITY - coveredParkedCount);
+  
+  // Breakdown Calculation (Keep based on total active logs to show full picture)
+  const wheels4 = activeLogs.filter(l => l.vehicleModel === '4 WHEELS').length;
+  const wheels3 = activeLogs.filter(l => l.vehicleModel === '3 WHEELS').length;
+  const wheels2 = activeLogs.filter(l => l.vehicleModel === '2 WHEELS').length;
 
   const getOccupancyColorClasses = () => {
     if (availableSlots === 0) {
@@ -203,9 +209,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
         <div className="bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center text-center">
           <div className="space-y-6 w-full max-w-[200px]">
-            <p className="text-[12px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Available Slots</p>
+            <p className="text-[12px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Covered Parking</p>
             <div className={`w-full py-10 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-sm ${getOccupancyColorClasses()}`}>
-              <span className="text-8xl font-black leading-none tracking-tighter">{availableSlots}</span>
+              <span className="text-8xl font-black leading-none tracking-tighter">{coveredParkedCount}</span>
             </div>
           </div>
         </div>
@@ -244,21 +250,83 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
           <div className="flex flex-col gap-6">
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center space-x-6 flex-1">
               <div className="p-5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-3xl">
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               </div>
               <div>
-                <p className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Cloud Registry</p>
-                <p className="text-4xl font-black text-slate-900 dark:text-white">{vehicles.length}</p>
+                <p className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Street Parking</p>
+                <p className="text-4xl font-black text-slate-900 dark:text-white">{streetParkedCount}</p>
               </div>
             </div>
             
-            <div className="bg-blue-600 p-8 rounded-[2rem] shadow-xl shadow-blue-500/20 flex flex-col justify-center items-center text-center flex-1">
-               <p className="text-white/70 text-xs font-black uppercase tracking-widest mb-1">Active Sessions</p>
-               <p className="text-white text-5xl font-black">{activeLogs.length}</p>
+            <div className="bg-blue-600 p-8 rounded-[2rem] shadow-xl shadow-blue-500/20 flex flex-col justify-between text-left flex-1 relative overflow-hidden group min-h-[240px]">
+               {/* Decorative background element */}
+               <div className="absolute -right-6 -top-6 bg-white/10 w-32 h-32 rounded-full blur-2xl group-hover:bg-white/20 transition-all duration-500"></div>
+               
+               <div className="relative z-10">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm">
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                    </div>
+                    <p className="text-blue-100 text-xs font-black uppercase tracking-widest">Live Occupancy</p>
+                  </div>
+                  
+                  <div className="flex items-baseline gap-2">
+                     <p className="text-white text-6xl font-black tracking-tighter">{coveredParkedCount}</p>
+                     <p className="text-blue-200 text-lg font-bold">/ {MAX_CAPACITY}</p>
+                  </div>
+               </div>
+
+               <div className="relative z-10 space-y-2 mt-4">
+                 <div className="flex justify-between items-center text-xs text-blue-100 font-bold uppercase tracking-wider">
+                    <span>Usage</span>
+                    <span>{Math.round((coveredParkedCount / MAX_CAPACITY) * 100)}%</span>
+                 </div>
+                 <div className="w-full h-3 bg-black/20 rounded-full overflow-hidden border border-white/10">
+                    <div 
+                      className="h-full bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-all duration-1000 ease-out"
+                      style={{ width: `${Math.min((coveredParkedCount / MAX_CAPACITY) * 100, 100)}%` }}
+                    />
+                 </div>
+               </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Admin Summary Breakdown */}
+      {isAdmin && (
+        <div className="w-full grid grid-cols-3 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
+            <div>
+               <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">4 Wheels</p>
+               <p className="text-2xl font-black text-slate-900 dark:text-white">{wheels4}</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10h14a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2z M7 10V7a3 3 0 013-3h4a3 3 0 013 3v3 M7 16a2 2 0 11-4 0 2 2 0 014 0zm14 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+            </div>
+          </div>
+          
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
+            <div>
+               <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">3 Wheels</p>
+               <p className="text-2xl font-black text-slate-900 dark:text-white">{wheels3}</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 10h12l2-4H6l-2 4zm0 0v6a2 2 0 002 2h8a2 2 0 002-2v-6M6 18a2 2 0 100-4 2 2 0 000 4zm10 0a2 2 0 100-4 2 2 0 000 4z" /></svg>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
+            <div>
+               <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">2 Wheels</p>
+               <p className="text-2xl font-black text-slate-900 dark:text-white">{wheels2}</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 18a4 4 0 100-8 4 4 0 000 8zm8 0a4 4 0 100-8 4 4 0 000 8zm-9-4h2a2 2 0 012 2v2m4-2h-2m-4-6h6l2 4h-8z" /></svg>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isAdmin && (
         <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
