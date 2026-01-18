@@ -27,11 +27,15 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
           StorageService.getLogs()
         ]);
         
-        setGroups(vehiclesData);
+        // Ensure data is array
+        const safeVehiclesData = Array.isArray(vehiclesData) ? vehiclesData : [];
+        const safeLogsData = Array.isArray(logsData) ? logsData : [];
+
+        setGroups(safeVehiclesData);
         
         // Identify currently checked-in vehicles (where checkOut is null)
         const active = new Set(
-          logsData
+          safeLogsData
             .filter(log => !log.checkOut)
             .map(log => log.plateNumber.toUpperCase())
         );
@@ -55,7 +59,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
   }, []);
 
   // Filter out plates that are already checked in
-  const filteredGroups = groups.filter(g => {
+  const filteredGroups = (groups || []).filter(g => {
     const isCheckedIn = activePlates.has(g.plateNumber.toUpperCase());
     const matchesSearch = g.plateNumber.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch && !isCheckedIn;
@@ -187,7 +191,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
               
               {isOpen && (
                 <div className="absolute z-50 w-full mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-2">
-                  {filteredGroups.length > 0 ? (
+                  {filteredGroups && filteredGroups.length > 0 ? (
                     filteredGroups.map(g => (
                       <div
                         key={g.plateNumber}
@@ -199,11 +203,11 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                         <div className="flex justify-between items-center">
                           <span className="text-xl font-black">{g.plateNumber}</span>
                           <span className="text-[10px] bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300 uppercase font-black">
-                            {g.owners.length} {g.owners.length === 1 ? 'Owner' : 'Owners'}
+                            {g.owners?.length || 0} {(g.owners?.length || 0) === 1 ? 'Owner' : 'Owners'}
                           </span>
                         </div>
                         <div className="text-xs opacity-60 font-medium truncate mt-1">
-                          {g.owners.map(o => `${o.nickname} ${o.familyName}`).join(', ')}
+                          {g.owners?.map(o => `${o.nickname} ${o.familyName}`).join(', ') || ''}
                         </div>
                       </div>
                     ))
