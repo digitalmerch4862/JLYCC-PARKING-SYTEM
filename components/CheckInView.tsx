@@ -87,6 +87,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     if (!selectedGroup) return;
 
     const plateToCheck = selectedGroup.plateNumber;
+    const primaryOwner = selectedGroup.owners[0];
 
     try {
       // 1. Search Vehicle in DB
@@ -98,17 +99,17 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
 
       if (searchError) throw searchError;
 
+      // 2. Decision: If Vehicle NOT Found
       if (!vehicleCheck || vehicleCheck.length === 0) {
-        alert('Vehicle not registered');
+        alert('Vehicle not found. Please register first.');
         return;
       }
 
-      const primaryOwner = selectedGroup.owners[0];
-
+      // 3. Decision: If Vehicle Found
       if (parkingLocation === 'Covered') {
         // If Covered Parking: Insert into parking_logs
         
-        // Check if already checked in locally (double check)
+        // Check local cache for duplicates to be safe
         if (activePlates.has(plateToCheck.toUpperCase())) {
           alert("This vehicle is already checked in.");
           return;
@@ -149,11 +150,12 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
         if (queueError) throw queueError;
       }
 
+      // 4. Completion
       onComplete();
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Check-in failed:", err);
-      alert("Error processing check-in. Please try again.");
+      alert(`Error processing check-in: ${err.message || 'Unknown error'}`);
     }
   };
 
