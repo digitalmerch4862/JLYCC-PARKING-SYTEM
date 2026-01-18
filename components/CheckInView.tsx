@@ -10,6 +10,7 @@ interface CheckInViewProps {
 
 const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
   const [groups, setGroups] = useState<VehicleGroup[]>([]);
+  const [activePlates, setActivePlates] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -17,14 +18,31 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchGroups = async () => {
+    const fetchData = async () => {
       setLoading(true);
-      const data = await StorageService.getGroupedVehicles();
-      setGroups(data);
-      setLoading(false);
+      try {
+        const [vehiclesData, logsData] = await Promise.all([
+          StorageService.getGroupedVehicles(),
+          StorageService.getLogs()
+        ]);
+        
+        setGroups(vehiclesData);
+        
+        // Identify currently checked-in vehicles (where checkOut is null)
+        const active = new Set(
+          logsData
+            .filter(log => !log.checkOut)
+            .map(log => log.plateNumber.toUpperCase())
+        );
+        setActivePlates(active);
+      } catch (err) {
+        console.error("Error fetching data:", err);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    fetchGroups();
+    fetchData();
     
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -35,9 +53,12 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredGroups = groups.filter(g => 
-    g.plateNumber.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter out plates that are already checked in
+  const filteredGroups = groups.filter(g => {
+    const isCheckedIn = activePlates.has(g.plateNumber.toUpperCase());
+    const matchesSearch = g.plateNumber.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesSearch && !isCheckedIn;
+  });
 
   const handleSelect = (group: VehicleGroup) => {
     setSelectedGroup(group);
@@ -49,7 +70,13 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     const val = e.target.value;
     setSearchTerm(val);
     setIsOpen(true);
-    const match = groups.find(g => g.plateNumber.toUpperCase() === val.toUpperCase());
+    
+    // Only auto-select if it's not checked in
+    const match = groups.find(g => 
+      g.plateNumber.toUpperCase() === val.toUpperCase() && 
+      !activePlates.has(g.plateNumber.toUpperCase())
+    );
+    
     if (!match) setSelectedGroup(null);
     else setSelectedGroup(match);
   };
@@ -57,6 +84,12 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedGroup || selectedGroup.owners.length === 0) return;
+
+    // Double check if already checked in before submitting
+    if (activePlates.has(selectedGroup.plateNumber.toUpperCase())) {
+      alert("This vehicle is already checked in.");
+      return;
+    }
 
     // Use the first owner as the primary contact for this specific log entry
     const primaryOwner = selectedGroup.owners[0];
@@ -136,11 +169,18 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                       </div>
                     ))
                   ) : (
-                    <div className="px-6 py-8 text-slate-400 dark:text-slate-600 text-center italic">No plates found</div>
+                    <div className="px-6 py-8 text-slate-400 dark:text-slate-600 text-center italic">
+                      {searchTerm ? 'No available plates found' : 'Type to search...'}
+                    </div>
                   )}
                 </div>
               )}
             </div>
+            {activePlates.size > 0 && (
+              <p className="text-[10px] text-slate-400 italic text-right pr-2">
+                * Currently parked vehicles are hidden
+              </p>
+            )}
           </div>
 
           {selectedGroup && (

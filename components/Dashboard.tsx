@@ -69,12 +69,59 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   }, []);
 
   const handleCheckOut = async (logId: string) => {
-    const targetLog = logs.find(l => l.id === logId);
-    if (targetLog) {
-      const updated = { ...targetLog, checkOut: new Date().toISOString() };
-      await StorageService.updateLog(updated);
-      // Realtime will handle the refresh, but local update for speed
-      await fetchData();
+    // Helper function to perform the actual DB update
+    const performCheckout = async () => {
+      const targetLog = logs.find(l => l.id === logId);
+      if (targetLog) {
+        const updated = { ...targetLog, checkOut: new Date().toISOString() };
+        await StorageService.updateLog(updated);
+        // Realtime will handle the refresh, but local update for speed
+        await fetchData();
+      }
+    };
+
+    try {
+      // Step 1: Check the Queue
+      const { data: queueData, error } = await supabase
+        .from('street_queue')
+        .select('*')
+        .order('entry_time', { ascending: true })
+        .limit(1);
+
+      if (error) {
+        console.error("Error checking queue:", error);
+        // If error, proceed safely with normal checkout
+        await performCheckout();
+        return;
+      }
+
+      // Step 2: Decision
+      if (queueData && queueData.length > 0) {
+        const nextDriver = queueData[0];
+        // Show confirmation dialog
+        const shouldNotify = window.confirm(`Queue Detected! Next driver is ${nextDriver.plate_number}. Send SMS notification?`);
+
+        if (shouldNotify) {
+          // Construct SMS link
+          const message = encodeURIComponent("Good news! A covered parking slot is available. Reply YES to claim.");
+          const smsLink = `sms:${nextDriver.mobile_number}?body=${message}`;
+          
+          // Open SMS app
+          window.location.href = smsLink;
+          
+          // Proceed to checkout current vehicle
+          await performCheckout();
+        } else {
+          // User clicked Cancel - Just checkout without SMS
+          await performCheckout();
+        }
+      } else {
+        // Queue is empty - Normal checkout
+        await performCheckout();
+      }
+    } catch (err) {
+      console.error("Unexpected error during checkout flow:", err);
+      await performCheckout();
     }
   };
 
