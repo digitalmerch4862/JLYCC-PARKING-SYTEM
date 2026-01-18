@@ -1,7 +1,7 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { LogEntry, User } from '../types';
 import { StorageService, maskPhone, VehicleGroup } from '../services/storage';
-import { supabase } from '../services/supabase';
 
 interface CheckInViewProps {
   user: User;
@@ -15,7 +15,6 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<VehicleGroup | null>(null);
-  const [parkingLocation, setParkingLocation] = useState<'Covered' | 'Street'>('Covered');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,15 +26,11 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
           StorageService.getLogs()
         ]);
         
-        // Ensure data is array
-        const safeVehiclesData = Array.isArray(vehiclesData) ? vehiclesData : [];
-        const safeLogsData = Array.isArray(logsData) ? logsData : [];
-
-        setGroups(safeVehiclesData);
+        setGroups(vehiclesData);
         
         // Identify currently checked-in vehicles (where checkOut is null)
         const active = new Set(
-          safeLogsData
+          logsData
             .filter(log => !log.checkOut)
             .map(log => log.plateNumber.toUpperCase())
         );
@@ -59,7 +54,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
   }, []);
 
   // Filter out plates that are already checked in
-  const filteredGroups = (groups || []).filter(g => {
+  const filteredGroups = groups.filter(g => {
     const isCheckedIn = activePlates.has(g.plateNumber.toUpperCase());
     const matchesSearch = g.plateNumber.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesSearch && !isCheckedIn;
@@ -88,74 +83,36 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
 
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedGroup) return;
+    if (!selectedGroup || selectedGroup.owners.length === 0) return;
 
-    const plateToCheck = selectedGroup.plateNumber;
+    // Double check if already checked in before submitting
+    if (activePlates.has(selectedGroup.plateNumber.toUpperCase())) {
+      alert("This vehicle is already checked in.");
+      return;
+    }
+
+    // Use the first owner as the primary contact for this specific log entry
     const primaryOwner = selectedGroup.owners[0];
 
+    const newLog: Omit<LogEntry, 'id'> = {
+      plateNumber: selectedGroup.plateNumber,
+      vehicleModel: selectedGroup.vehicleModel, // Now represents Wheels count
+      vehicleColor: selectedGroup.vehicleColor,
+      familyName: primaryOwner.familyName,
+      nickname: primaryOwner.nickname,
+      mobileNumber: primaryOwner.mobileNumber,
+      email: primaryOwner.email,
+      checkIn: new Date().toISOString(),
+      checkOut: null,
+      attendantName: user.userName
+    };
+
     try {
-      // 1. Search Vehicle in DB
-      const { data: vehicleCheck, error: searchError } = await supabase
-        .from('vehicles')
-        .select('plate_number')
-        .eq('plate_number', plateToCheck)
-        .limit(1);
-
-      if (searchError) throw searchError;
-
-      // 2. Decision: If Vehicle NOT Found
-      if (!vehicleCheck || vehicleCheck.length === 0) {
-        alert('Vehicle not found. Please register first.');
-        return;
-      }
-
-      // 3. Decision: If Vehicle Found
-      if (parkingLocation === 'Covered') {
-        // If Covered Parking: Insert into parking_logs
-        
-        // Check local cache for duplicates to be safe
-        if (activePlates.has(plateToCheck.toUpperCase())) {
-          alert("This vehicle is already checked in.");
-          return;
-        }
-
-        const newLog: Omit<LogEntry, 'id'> = {
-          plateNumber: selectedGroup.plateNumber,
-          vehicleModel: selectedGroup.vehicleModel,
-          vehicleColor: selectedGroup.vehicleColor,
-          familyName: primaryOwner.familyName,
-          nickname: primaryOwner.nickname,
-          mobileNumber: primaryOwner.mobileNumber,
-          email: primaryOwner.email,
-          checkIn: new Date().toISOString(),
-          checkOut: null,
-          attendantName: user.userName,
-          parkingLocation: 'Covered' // Note: This field is filtered out in storage.ts to avoid SQL errors
-        };
-
-        await StorageService.addLog(newLog);
-
-      } else {
-        // If Street Parking: Insert into street_queue
-        // STRICT PAYLOAD: Only sending fields confirmed to exist in the table schema
-        const { error: queueError } = await supabase
-          .from('street_queue')
-          .insert([{
-             plate_number: selectedGroup.plateNumber,
-             mobile_number: primaryOwner.mobileNumber,
-             vehicle_model: selectedGroup.vehicleModel,
-             attendant_name: user.userName
-          }]);
-        
-        if (queueError) throw queueError;
-      }
-
-      // 4. Completion
+      await StorageService.addLog(newLog);
       onComplete();
-
-    } catch (err: any) {
-      console.error("Check-in failed:", err);
-      alert(`Error processing check-in: ${err.message || 'Unknown error'}`);
+    } catch (error) {
+      console.error("Failed to add log:", error);
+      alert("Error saving check-in data.");
     }
   };
 
@@ -191,7 +148,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
               
               {isOpen && (
                 <div className="absolute z-50 w-full mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl max-h-72 overflow-y-auto animate-in fade-in slide-in-from-top-2">
-                  {filteredGroups && filteredGroups.length > 0 ? (
+                  {filteredGroups.length > 0 ? (
                     filteredGroups.map(g => (
                       <div
                         key={g.plateNumber}
@@ -203,11 +160,11 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                         <div className="flex justify-between items-center">
                           <span className="text-xl font-black">{g.plateNumber}</span>
                           <span className="text-[10px] bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded text-slate-600 dark:text-slate-300 uppercase font-black">
-                            {g.owners?.length || 0} {(g.owners?.length || 0) === 1 ? 'Owner' : 'Owners'}
+                            {g.owners.length} {g.owners.length === 1 ? 'Owner' : 'Owners'}
                           </span>
                         </div>
                         <div className="text-xs opacity-60 font-medium truncate mt-1">
-                          {g.owners?.map(o => `${o.nickname} ${o.familyName}`).join(', ') || ''}
+                          {g.owners.map(o => `${o.nickname} ${o.familyName}`).join(', ')}
                         </div>
                       </div>
                     ))
@@ -239,32 +196,15 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                 </div>
               </div>
 
-              {/* Parking Location Selection */}
-              <div className="space-y-3">
-                <label className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Parking Location</label>
-                <div className="flex bg-slate-200 dark:bg-slate-700 p-1 rounded-2xl">
-                  <button
-                    type="button"
-                    onClick={() => setParkingLocation('Covered')}
-                    className={`flex-1 py-3 sm:py-4 rounded-xl font-bold text-xs sm:text-sm uppercase tracking-wide transition-all ${
-                      parkingLocation === 'Covered'
-                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-white shadow-md scale-[1.02]'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    Covered Parking
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setParkingLocation('Street')}
-                    className={`flex-1 py-3 sm:py-4 rounded-xl font-bold text-xs sm:text-sm uppercase tracking-wide transition-all ${
-                      parkingLocation === 'Street'
-                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-white shadow-md scale-[1.02]'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    Street Parking
-                  </button>
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Registered Contacts</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {selectedGroup.owners.map((owner, idx) => (
+                    <div key={idx} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                      <p className="font-black text-slate-900 dark:text-white text-sm uppercase">{owner.nickname} {owner.familyName}</p>
+                      <p className="text-xs text-slate-500 font-medium">{maskPhone(owner.mobileNumber)}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

@@ -56,8 +56,7 @@ const mapLogFromDB = (record: any): LogEntry => ({
   email: record.email,
   checkIn: record.check_in,
   checkOut: record.check_out,
-  attendantName: record.attendant_name,
-  // Removed parking_location mapping as column does not exist
+  attendantName: record.attendant_name
 });
 
 const mapLogToDB = (l: Omit<LogEntry, 'id'>) => ({
@@ -71,7 +70,6 @@ const mapLogToDB = (l: Omit<LogEntry, 'id'>) => ({
   check_in: l.checkIn,
   check_out: l.checkOut,
   attendant_name: l.attendantName
-  // Removed parking_location from payload
 });
 
 export const StorageService = {
@@ -141,7 +139,7 @@ export const StorageService = {
     
     const headers = [
       'Date', 'Plate Number', 'No. of Wheels', 'Vehicle Color', 'Nickname', 
-      'Family Name', 'Mobile Number', 'Email', 'Attendant', 'Check In', 'Check Out', 'Location'
+      'Family Name', 'Mobile Number', 'Email', 'Attendant', 'Check In', 'Check Out'
     ];
     
     const rows = weeklyLogs.map(log => [
@@ -155,8 +153,7 @@ export const StorageService = {
       log.email || '--',
       log.attendantName || '--',
       new Date(log.checkIn).toLocaleTimeString(),
-      log.checkOut ? new Date(log.checkOut).toLocaleTimeString() : 'Parked',
-      log.parkingLocation || '--'
+      log.checkOut ? new Date(log.checkOut).toLocaleTimeString() : 'Parked'
     ]);
 
     return [

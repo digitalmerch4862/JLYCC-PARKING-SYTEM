@@ -22,49 +22,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   const MAP_URL = "https://maps.app.goo.gl/NXSLHHjoF3P3ByF89";
   const ADMIN_PHONE = "09694887065";
 
-  // --- SAFETY HELPERS ---
-  const safelyFormatTime = (dateString: string | undefined | null) => {
-    if (!dateString) return '--:--';
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return '--:--';
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch (e) {
-      return '--:--';
-    }
-  };
-
-  const safelyFormatDate = (dateString: string | undefined | null) => {
-    if (!dateString) return '-';
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return '-';
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    } catch (e) {
-      return '-';
-    }
-  };
-  // ----------------------
-
   const fetchData = async () => {
-    try {
-      const [allLogs, allVehicles] = await Promise.all([
-        StorageService.getLogs(),
-        StorageService.getDatabase()
-      ]);
-      // Ensure we always work with arrays
-      const safeLogs = Array.isArray(allLogs) ? allLogs : [];
-      const safeVehicles = Array.isArray(allVehicles) ? allVehicles : [];
-      
-      setLogs(safeLogs);
-      setVehicles(safeVehicles);
-      setActiveLogs(safeLogs.filter(log => !log.checkOut));
-    } catch (error) {
-      console.error("Dashboard fetch error:", error);
-      setLogs([]);
-      setVehicles([]);
-      setActiveLogs([]);
-    }
+    const [allLogs, allVehicles] = await Promise.all([
+      StorageService.getLogs(),
+      StorageService.getDatabase()
+    ]);
+    setLogs(allLogs);
+    setVehicles(allVehicles);
+    setActiveLogs(allLogs.filter(log => !log.checkOut));
   };
 
   useEffect(() => {
@@ -105,7 +70,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   const handleCheckOut = async (logId: string) => {
     // Helper function to perform the actual DB update
     const performCheckout = async () => {
-      const targetLog = logs?.find(l => l.id === logId);
+      const targetLog = logs.find(l => l.id === logId);
       if (targetLog) {
         const updated = { ...targetLog, checkOut: new Date().toISOString() };
         await StorageService.updateLog(updated);
@@ -124,30 +89,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
       if (error) {
         console.error("Error checking queue:", error);
+        // If error, proceed safely with normal checkout
         await performCheckout();
         return;
       }
 
       // Step 2: Decision
-      // Safe check for window access inside event handler
       if (queueData && queueData.length > 0) {
         const nextDriver = queueData[0];
-        
-        if (typeof window !== 'undefined') {
-          const shouldNotify = window.confirm(`Queue Detected! Next driver is ${nextDriver.plate_number}. Send SMS notification?`);
+        // Show confirmation dialog
+        const shouldNotify = window.confirm(`Queue Detected! Next driver is ${nextDriver.plate_number}. Send SMS notification?`);
 
-          if (shouldNotify) {
-            const message = encodeURIComponent("Good news! A covered parking slot is available. Reply YES to claim.");
-            const smsLink = `sms:${nextDriver.mobile_number}?body=${message}`;
-            window.location.href = smsLink;
-            await performCheckout();
-          } else {
-            await performCheckout();
-          }
+        if (shouldNotify) {
+          // Construct SMS link
+          const message = encodeURIComponent("Good news! A covered parking slot is available. Reply YES to claim.");
+          const smsLink = `sms:${nextDriver.mobile_number}?body=${message}`;
+          
+          // Open SMS app
+          window.location.href = smsLink;
+          
+          // Proceed to checkout current vehicle
+          await performCheckout();
         } else {
-           await performCheckout();
+          // User clicked Cancel - Just checkout without SMS
+          await performCheckout();
         }
       } else {
+        // Queue is empty - Normal checkout
         await performCheckout();
       }
     } catch (err) {
@@ -157,13 +125,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   };
 
   const getOwnersForPlate = (plate: string) => {
-    return vehicles?.filter(v => v.plateNumber.toUpperCase() === plate.toUpperCase()) || [];
+    return vehicles.filter(v => v.plateNumber.toUpperCase() === plate.toUpperCase());
   };
 
   const verifyAndContact = (type: 'call' | 'sms') => {
-    if (typeof window === 'undefined') return;
-
-    const isCheckedIn = activeLogs?.some(log => log.plateNumber.toUpperCase() === guestPlate.toUpperCase().trim());
+    const isCheckedIn = activeLogs.some(log => log.plateNumber.toUpperCase() === guestPlate.toUpperCase().trim());
     if (!isCheckedIn || guestPlate.trim() === '') {
       setErrorNote(true);
       setTimeout(() => setErrorNote(false), 5000);
@@ -172,16 +138,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     window.location.href = type === 'call' ? `tel:${ADMIN_PHONE}` : `sms:${ADMIN_PHONE}`;
   };
 
-  // Unified calculation logic with safety checks
-  const safeActiveLogs = activeLogs || [];
-  const streetParkedCount = safeActiveLogs.filter(l => l.parkingLocation === 'Street').length;
-  const coveredParkedCount = safeActiveLogs.filter(l => l.parkingLocation !== 'Street').length;
-  const availableSlots = Math.max(0, MAX_CAPACITY - coveredParkedCount);
+  // Unified calculation logic: Active Count is simply total active logs.
+  const activeCount = activeLogs.length;
+  const availableSlots = Math.max(0, MAX_CAPACITY - activeCount);
   
   // Breakdown Calculation
-  const wheels4 = safeActiveLogs.filter(l => l.vehicleModel === '4 WHEELS').length;
-  const wheels3 = safeActiveLogs.filter(l => l.vehicleModel === '3 WHEELS').length;
-  const wheels2 = safeActiveLogs.filter(l => l.vehicleModel === '2 WHEELS').length;
+  const wheels4 = activeLogs.filter(l => l.vehicleModel === '4 WHEELS').length;
+  const wheels3 = activeLogs.filter(l => l.vehicleModel === '3 WHEELS').length;
+  const wheels2 = activeLogs.filter(l => l.vehicleModel === '2 WHEELS').length;
 
   const getOccupancyColorClasses = () => {
     if (availableSlots === 0) {
@@ -244,9 +208,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
         <div className="bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center text-center">
           <div className="space-y-6 w-full max-w-[200px]">
-            <p className="text-[12px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Covered Parking</p>
+            <p className="text-[12px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Available Slots</p>
             <div className={`w-full py-10 rounded-full border-2 flex flex-col items-center justify-center transition-all shadow-sm ${getOccupancyColorClasses()}`}>
-              <span className="text-8xl font-black leading-none tracking-tighter">{coveredParkedCount}</span>
+              <span className="text-8xl font-black leading-none tracking-tighter">{availableSlots}</span>
             </div>
           </div>
         </div>
@@ -285,11 +249,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
           <div className="flex flex-col gap-6">
             <div className="bg-white dark:bg-slate-900 p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center space-x-6 flex-1">
               <div className="p-5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-3xl">
-                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <p className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Street Parking</p>
-                <p className="text-4xl font-black text-slate-900 dark:text-white">{streetParkedCount}</p>
+                <p className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Cloud Registry</p>
+                <p className="text-4xl font-black text-slate-900 dark:text-white">{vehicles.length}</p>
               </div>
             </div>
             
@@ -306,20 +270,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                   </div>
                   
                   <div className="flex items-baseline gap-2">
-                     <p className="text-white text-6xl font-black tracking-tighter">{coveredParkedCount}</p>
+                     <p className="text-white text-6xl font-black tracking-tighter">{activeCount}</p>
                      <p className="text-blue-200 text-lg font-bold">/ {MAX_CAPACITY}</p>
                   </div>
+                  <p className="text-blue-100 text-sm font-medium mt-1">Number of Total Vehicle Parked</p>
                </div>
 
                <div className="relative z-10 space-y-2 mt-4">
                  <div className="flex justify-between items-center text-xs text-blue-100 font-bold uppercase tracking-wider">
                     <span>Usage</span>
-                    <span>{Math.round((coveredParkedCount / MAX_CAPACITY) * 100)}%</span>
+                    <span>{Math.round((activeCount / MAX_CAPACITY) * 100)}%</span>
                  </div>
                  <div className="w-full h-3 bg-black/20 rounded-full overflow-hidden border border-white/10">
                     <div 
                       className="h-full bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)] transition-all duration-1000 ease-out"
-                      style={{ width: `${Math.min((coveredParkedCount / MAX_CAPACITY) * 100, 100)}%` }}
+                      style={{ width: `${Math.min((activeCount / MAX_CAPACITY) * 100, 100)}%` }}
                     />
                  </div>
                </div>
@@ -375,14 +340,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                 <tr><th className="px-6 sm:px-8 py-5 text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Plate Group</th><th className="px-6 py-5 text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest hidden sm:table-cell">Registered Contacts</th><th className="px-6 py-5 text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Entry Time</th><th className="px-6 sm:px-8 py-5 text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest text-right">Action</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
-                {safeActiveLogs.length === 0 ? (<tr><td colSpan={4} className="px-6 py-16 text-center text-slate-400 dark:text-slate-500 italic">No vehicles currently active.</td></tr>) : (
-                  safeActiveLogs.map((log) => {
+                {activeLogs.length === 0 ? (<tr><td colSpan={4} className="px-6 py-16 text-center text-slate-400 dark:text-slate-500 italic">No vehicles currently active.</td></tr>) : (
+                  activeLogs.map((log) => {
                     const owners = getOwnersForPlate(log.plateNumber);
                     return (
                       <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
                         <td className="px-6 sm:px-8 py-5"><div><p className="font-black text-lg text-slate-900 dark:text-white uppercase tracking-tighter">{log.plateNumber}</p><p className="text-[10px] text-slate-500 dark:text-slate-400 font-black uppercase tracking-widest">{log.vehicleModel} • {log.vehicleColor}</p></div></td>
-                        <td className="px-6 py-5 hidden sm:table-cell"><div className="flex flex-wrap gap-1">{owners && owners.length > 0 ? owners.map((owner, idx) => (<span key={idx} className="inline-flex flex-col px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700"><span className="text-[10px] font-black text-slate-900 dark:text-white uppercase">{owner.nickname} {owner.familyName}</span><span className="text-[8px] text-slate-500 font-bold">{maskPhone(owner.mobileNumber)}</span></span>)) : (<span className="text-[10px] text-slate-400 italic">Guest / Unknown</span>)}</div></td>
-                        <td className="px-6 py-5"><p className="text-sm text-slate-900 dark:text-300 font-black">{safelyFormatTime(log.checkIn)}</p><p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">{safelyFormatDate(log.checkIn)}</p></td>
+                        <td className="px-6 py-5 hidden sm:table-cell"><div className="flex flex-wrap gap-1">{owners.length > 0 ? owners.map((owner, idx) => (<span key={idx} className="inline-flex flex-col px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700"><span className="text-[10px] font-black text-slate-900 dark:text-white uppercase">{owner.nickname} {owner.familyName}</span><span className="text-[8px] text-slate-500 font-bold">{maskPhone(owner.mobileNumber)}</span></span>)) : (<span className="text-[10px] text-slate-400 italic">Guest / Unknown</span>)}</div></td>
+                        <td className="px-6 py-5"><p className="text-sm text-slate-900 dark:text-300 font-black">{new Date(log.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p><p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">{new Date(log.checkIn).toLocaleDateString([], { month: 'short', day: 'numeric' })}</p></td>
                         <td className="px-6 sm:px-8 py-5 text-right"><button onClick={() => handleCheckOut(log.id)} className="px-5 py-2.5 text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 rounded-xl hover:bg-emerald-600 hover:text-white transition-all active:scale-95 uppercase tracking-widest border border-emerald-100 dark:border-emerald-900/50">Check Out</button></td>
                       </tr>
                     );
