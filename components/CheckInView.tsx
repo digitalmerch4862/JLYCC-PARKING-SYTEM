@@ -126,7 +126,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
           checkIn: new Date().toISOString(),
           checkOut: null,
           attendantName: user.userName,
-          parkingLocation: 'Covered'
+          parkingLocation: 'Covered' // Note: This field is now filtered out in storage.ts to avoid SQL errors
         };
 
         await StorageService.addLog(newLog);

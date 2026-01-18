@@ -57,7 +57,7 @@ const mapLogFromDB = (record: any): LogEntry => ({
   checkIn: record.check_in,
   checkOut: record.check_out,
   attendantName: record.attendant_name,
-  parkingLocation: record.parking_location
+  // Removed parking_location mapping as column does not exist
 });
 
 const mapLogToDB = (l: Omit<LogEntry, 'id'>) => ({
@@ -70,8 +70,8 @@ const mapLogToDB = (l: Omit<LogEntry, 'id'>) => ({
   email: l.email || null,
   check_in: l.checkIn,
   check_out: l.checkOut,
-  attendant_name: l.attendantName,
-  parking_location: l.parkingLocation
+  attendant_name: l.attendantName
+  // Removed parking_location from payload
 });
 
 export const StorageService = {
