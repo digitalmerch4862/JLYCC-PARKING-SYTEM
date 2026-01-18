@@ -126,24 +126,20 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
           checkIn: new Date().toISOString(),
           checkOut: null,
           attendantName: user.userName,
-          parkingLocation: 'Covered' // Note: This field is now filtered out in storage.ts to avoid SQL errors
+          parkingLocation: 'Covered' // Note: This field is filtered out in storage.ts to avoid SQL errors
         };
 
         await StorageService.addLog(newLog);
 
       } else {
         // If Street Parking: Insert into street_queue
+        // STRICT PAYLOAD: Only sending fields confirmed to exist in the table schema
         const { error: queueError } = await supabase
           .from('street_queue')
           .insert([{
              plate_number: selectedGroup.plateNumber,
-             vehicle_model: selectedGroup.vehicleModel,
-             vehicle_color: selectedGroup.vehicleColor,
-             family_name: primaryOwner.familyName,
-             first_name: primaryOwner.nickname,
              mobile_number: primaryOwner.mobileNumber,
-             email: primaryOwner.email,
-             entry_time: new Date().toISOString(),
+             vehicle_model: selectedGroup.vehicleModel,
              attendant_name: user.userName
           }]);
         
