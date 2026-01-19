@@ -36,4 +36,4 @@ export interface LeaderboardEntry {
   date: string;
 }
 
-export type ViewState = 'Parking' | 'CheckIn' | 'VehicleList' | 'History' | 'Training' | 'Contact' | 'Pastor' | 'Devotion' | 'Bible';
+export type ViewState = 'Parking' | 'CheckIn' | 'VehicleList' | 'History' | 'Training' | 'Contact' | 'Pastor' | 'Devotion' | 'Bible' | 'Sermons';
