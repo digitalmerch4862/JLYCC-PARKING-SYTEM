@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { LogEntry, User } from '../types';
-import { StorageService, maskPhone, VehicleGroup } from '../services/storage';
+import { User } from '../types';
+import { StorageService, maskPhone, VehicleGroup, MAX_CAPACITY } from '../services/storage';
+import { supabase } from '../services/supabase';
 
 interface CheckInViewProps {
   user: User;
@@ -10,21 +11,53 @@ interface CheckInViewProps {
 
 const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
   const [groups, setGroups] = useState<VehicleGroup[]>([]);
+  const [activePlates, setActivePlates] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<VehicleGroup | null>(null);
+  const [currentOccupancy, setCurrentOccupancy] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchGroups = async () => {
+    const fetchData = async () => {
       setLoading(true);
-      const data = await StorageService.getGroupedVehicles();
-      setGroups(data);
-      setLoading(false);
+      try {
+        const vehiclesData = await StorageService.getGroupedVehicles();
+        setGroups(vehiclesData);
+        
+        // Fetch active logs (both parking and queue) to prevent duplicates
+        const { data: logsData } = await supabase
+          .from('parking_logs')
+          .select('plate_number')
+          .is('check_out', null);
+
+        const { data: queueData } = await supabase
+          .from('street_queue')
+          .select('plate_number');
+
+        let activeSet = new Set<string>();
+        let occupancy = 0;
+
+        if (logsData) {
+           occupancy = logsData.length;
+           logsData.forEach(l => activeSet.add(l.plate_number.toUpperCase()));
+        }
+        if (queueData) {
+           queueData.forEach(q => activeSet.add(q.plate_number.toUpperCase()));
+        }
+        
+        setCurrentOccupancy(occupancy);
+        setActivePlates(activeSet);
+
+      } catch (err) {
+        console.error("Error fetching data:", err);
+      } finally {
+        setLoading(false);
+      }
     };
 
-    fetchGroups();
+    fetchData();
     
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -35,9 +68,12 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredGroups = groups.filter(g => 
-    g.plateNumber.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter out plates that are already checked in
+  const filteredGroups = groups.filter(g => {
+    const isCheckedIn = activePlates.has(g.plateNumber.toUpperCase());
+    const matchesSearch = g.plateNumber.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesSearch && !isCheckedIn;
+  });
 
   const handleSelect = (group: VehicleGroup) => {
     setSelectedGroup(group);
@@ -49,7 +85,12 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     const val = e.target.value;
     setSearchTerm(val);
     setIsOpen(true);
-    const match = groups.find(g => g.plateNumber.toUpperCase() === val.toUpperCase());
+    
+    const match = groups.find(g => 
+      g.plateNumber.toUpperCase() === val.toUpperCase() && 
+      !activePlates.has(g.plateNumber.toUpperCase())
+    );
+    
     if (!match) setSelectedGroup(null);
     else setSelectedGroup(match);
   };
@@ -58,27 +99,44 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     e.preventDefault();
     if (!selectedGroup || selectedGroup.owners.length === 0) return;
 
-    // Use the first owner as the primary contact for this specific log entry
-    const primaryOwner = selectedGroup.owners[0];
+    if (activePlates.has(selectedGroup.plateNumber.toUpperCase())) {
+      alert("This vehicle is already checked in.");
+      return;
+    }
 
-    const newLog: Omit<LogEntry, 'id'> = {
-      plateNumber: selectedGroup.plateNumber,
-      vehicleModel: selectedGroup.vehicleModel, // Now represents Wheels count
-      vehicleColor: selectedGroup.vehicleColor,
-      familyName: primaryOwner.familyName,
-      nickname: primaryOwner.nickname,
-      mobileNumber: primaryOwner.mobileNumber,
-      email: primaryOwner.email,
-      checkIn: new Date().toISOString(),
-      checkOut: null,
-      attendantName: user.userName
+    const primaryOwner = selectedGroup.owners[0];
+    const isFull = currentOccupancy >= MAX_CAPACITY;
+    
+    // Strict Payload for Supabase
+    const payload = {
+      plate_number: selectedGroup.plateNumber.toUpperCase(),
+      mobile_number: primaryOwner.mobileNumber,
+      vehicle_model: selectedGroup.vehicleModel.toUpperCase(), // Currently holds wheel count
+      attendant_name: user.userName,
     };
 
     try {
-      await StorageService.addLog(newLog);
+      if (isFull) {
+        // Insert into street_queue if full
+        const { error } = await supabase.from('street_queue').insert([payload]);
+        if (error) throw error;
+        alert(`Parking full! ${selectedGroup.plateNumber} added to Street Queue.`);
+      } else {
+        // Insert into parking_logs if space available
+        const logPayload = {
+          ...payload,
+          vehicle_color: selectedGroup.vehicleColor.toUpperCase(),
+          family_name: primaryOwner.familyName.toUpperCase(),
+          first_name: primaryOwner.nickname.toUpperCase(),
+          email: primaryOwner.email || null,
+          check_in: new Date().toISOString()
+        };
+        const { error } = await supabase.from('parking_logs').insert([logPayload]);
+        if (error) throw error;
+      }
       onComplete();
     } catch (error) {
-      console.error("Failed to add log:", error);
+      console.error("Failed to add log/queue:", error);
       alert("Error saving check-in data.");
     }
   };
@@ -136,11 +194,18 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                       </div>
                     ))
                   ) : (
-                    <div className="px-6 py-8 text-slate-400 dark:text-slate-600 text-center italic">No plates found</div>
+                    <div className="px-6 py-8 text-slate-400 dark:text-slate-600 text-center italic">
+                      {searchTerm ? 'No available plates found' : 'Type to search...'}
+                    </div>
                   )}
                 </div>
               )}
             </div>
+            {activePlates.size > 0 && (
+              <p className="text-[10px] text-slate-400 italic text-right pr-2">
+                * Currently parked vehicles are hidden from list
+              </p>
+            )}
           </div>
 
           {selectedGroup && (
@@ -187,7 +252,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
                 : 'bg-slate-100 dark:bg-slate-800 text-slate-300 cursor-not-allowed'
               }`}
             >
-              Confirm Check-In
+              {currentOccupancy >= MAX_CAPACITY ? 'Queue (Full)' : 'Confirm Check-In'}
             </button>
           </div>
         </form>

@@ -10,7 +10,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
-  const [showFields, setShowFields] = useState(false);
+  // Default to true to show form immediately, hiding selection buttons
+  const [showFields, setShowFields] = useState(true); 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,19 +42,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   };
 
-  const handleGuestLogin = () => {
-    onLogin({
-      userName: 'Guest User',
-      roleName: 'Guest'
-    });
-  };
-
-  const handleAdminClick = () => {
-    if (!showFields) {
-      setShowFields(true);
-    }
-  };
-
   // SMS link for the developer
   const CONTACT_PHONE = "09694887065";
   const smsMessage = "hi im interested in jlycc conact me";
@@ -76,7 +64,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
         <div className="w-full bg-white dark:bg-[#252b36] p-10 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-white/5 transition-all duration-300">
           <div className="space-y-6">
-            {showFields && (
               <form onSubmit={handleSubmit} className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-500">
                 <div className="space-y-3">
                   <label className="text-[12px] font-bold text-slate-500 dark:text-[#6b7280] uppercase tracking-wider ml-1">Username</label>
@@ -107,41 +94,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   type="submit"
                   className="w-full py-5 bg-[#2563eb] hover:bg-blue-600 text-white font-black rounded-[1.25rem] transition-all shadow-[0_15px_30px_-5px_rgba(37,99,235,0.4)] active:scale-[0.98] text-[17px]"
                 >
-                  Admin
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={() => setShowFields(false)}
-                  className="w-full py-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold uppercase tracking-widest transition-colors"
-                >
-                  Back to selection
+                  Sign In
                 </button>
               </form>
-            )}
-
-            {!showFields && (
-              <div className="space-y-4 animate-in fade-in duration-500">
-                <button
-                  onClick={handleAdminClick}
-                  className="w-full py-5 bg-[#2563eb] hover:bg-blue-600 text-white font-black rounded-[1.25rem] transition-all shadow-[0_15px_30px_-5px_rgba(37,99,235,0.4)] active:scale-[0.98] text-[17px]"
-                >
-                  Admin
-                </button>
-                
-                <div className="relative py-2">
-                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100 dark:border-white/5"></div></div>
-                  <div className="relative flex justify-center text-xs uppercase"><span className="bg-white dark:bg-[#252b36] px-3 text-slate-400 dark:text-slate-600 font-bold">Or</span></div>
-                </div>
-
-                <button
-                  onClick={handleGuestLogin}
-                  className="w-full py-5 bg-slate-50 dark:bg-[#2d3441] hover:bg-slate-100 dark:hover:bg-[#343c4a] text-slate-600 dark:text-slate-400 font-black rounded-[1.25rem] transition-all border border-slate-100 dark:border-white/5 text-[17px]"
-                >
-                  Guest
-                </button>
-              </div>
-            )}
           </div>
         </div>
 
