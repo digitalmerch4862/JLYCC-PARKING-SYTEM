@@ -285,35 +285,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       // Aggressive Cleanup: Remove anything that isn't A-Z or 0-9
       const cleanText = rawText.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-      // Proceed with result (even if unknown, let user edit)
-      foundPlate(cleanText, dataUrl);
+      // Proceed with result
+      processFoundPlate(cleanText, dataUrl);
 
     } catch (err) {
       console.warn("Scan error:", err);
       // Fallback to empty allow manual entry
-      foundPlate("", dataUrl); 
+      processFoundPlate("", dataUrl); 
     }
   };
 
-  // Called when AI returns result
-  const foundPlate = (plate: string, image: string) => {
+  // Logic to determine if we Check-In, Check-Out, or Ask
+  const processFoundPlate = (plate: string, image: string) => {
     // Set State
     const finalPlate = plate === 'UNKNOWN' ? '' : plate;
     setScannedPlate(finalPlate);
     
-    // Determine Logic (Smart DB Check)
+    // Smart Routing Logic
     const isActive = activeLogs.some(log => log.plateNumber === finalPlate);
     const isRegistered = vehicles.some(v => v.plateNumber === finalPlate);
 
     if (finalPlate && isActive) {
+        // Auto-Check Out Logic
         setSuggestedAction('out');
         setScanStep('action'); 
     } else if (finalPlate && isRegistered) {
+        // Auto-Check In Logic
         setSuggestedAction('in');
         setScanStep('action'); 
     } else {
+        // Unknown or empty -> Manual Verify
         setSuggestedAction(null);
-        setScanStep('verify'); // Unknown car or empty result, manual verify
+        setScanStep('verify');
     }
   };
 
@@ -535,7 +538,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                        <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-blue-500 rounded-bl-xl"></div>
                        <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-blue-500 rounded-br-xl"></div>
                        
-                       {/* Laser Scan Line (Just for visual, no functionality) */}
+                       {/* Laser Scan Line (Visual only) */}
                        <div className="absolute left-0 right-0 h-1 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-scan opacity-50"></div>
                     </div>
                     
@@ -543,7 +546,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                     <div className="absolute bottom-10 left-0 right-0 flex justify-center z-50">
                        <button 
                          onClick={captureAndAnalyze}
-                         className="w-20 h-20 rounded-full bg-white border-4 border-slate-300 flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.5)] active:scale-90 transition-all"
+                         className="w-20 h-20 rounded-full bg-white border-4 border-slate-300 flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.5)] active:scale-90 transition-all hover:bg-slate-200"
+                         title="Capture Plate"
                        >
                           <div className="w-16 h-16 rounded-full bg-white border-2 border-black"></div>
                        </button>
@@ -552,7 +556,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                 ) : scanStep === 'analyzing' ? (
                    <div className="flex flex-col items-center justify-center space-y-6">
                       <div className="w-20 h-20 border-8 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                      <p className="text-white font-black text-xl uppercase tracking-widest animate-pulse">Analyzing Plate...</p>
+                      <p className="text-white font-black text-xl uppercase tracking-widest animate-pulse">Reading Plate...</p>
                    </div>
                 ) : (
                   // Verification / Action Screen
