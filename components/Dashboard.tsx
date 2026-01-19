@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { LogEntry, User, Vehicle } from '../types';
 import { MAX_CAPACITY, maskPhone } from '../services/storage';
@@ -40,6 +39,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanStep, setScanStep] = useState<'camera' | 'verify' | 'action'>('camera');
   const [scannedPlate, setScannedPlate] = useState('');
+  const [suggestedAction, setSuggestedAction] = useState<'in' | 'out' | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -190,17 +190,36 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     };
   }, [isMounted]);
 
-  // Camera Handlers
+  // --- Camera & OCR Handlers ---
+
   const startCamera = async () => {
     setIsScannerOpen(true);
     setScanStep('camera');
     setScannedPlate('');
+    setSuggestedAction(null);
     setCapturedImage(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
-      });
+      const constraints = {
+        video: { 
+            facingMode: 'environment',
+            // Try to force torch on immediately
+            advanced: [{ torch: true }] 
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+      
+      // Apply torch track constraint separately to ensure it works on most devices
+      const track = stream.getVideoTracks()[0];
+      try {
+        await track.applyConstraints({
+          advanced: [{ torch: true }]
+        });
+      } catch (err) {
+        console.warn("Flashlight not supported on this device", err);
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
@@ -214,7 +233,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      // Turn off torch before stopping
+      const track = streamRef.current.getVideoTracks()[0];
+      if (track) {
+          track.stop();
+      }
       streamRef.current = null;
     }
   };
@@ -241,19 +264,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     // Draw video frame to canvas
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Get base64 string
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    // Get base64 string (High Quality)
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
     const base64Data = dataUrl.split(',')[1];
     setCapturedImage(dataUrl);
     
     // Stop camera stream to save battery/resources
     stopCamera();
+    
+    // Default to verify step, but we might skip it if confident
     setScanStep('verify');
     setIsAnalyzing(true);
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = "Look at this image. Extract the license plate number visible on the vehicle. Return ONLY the alphanumeric characters of the plate, with no spaces, dashes, or special characters. If no plate is clearly visible, return 'UNKNOWN'. Do not include any other text.";
+      const prompt = "Analyze this image and find the Vehicle License Plate. Return ONLY the alphanumeric characters of the plate. Remove any spaces, dashes, or country names. If you cannot see a plate clearly, strictly return 'UNKNOWN'.";
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-latest",
@@ -265,9 +290,35 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         }
       });
       
-      const text = (response.text || '').trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-      
-      setScannedPlate(text === 'UNKNOWN' ? '' : text);
+      let text = (response.text || '').trim().toUpperCase();
+      // Clean up result: remove all non-alphanumeric chars just to be safe
+      text = text.replace(/[^A-Z0-9]/g, '');
+
+      if (text && text !== 'UNKNOWN') {
+         setScannedPlate(text);
+         
+         // --- Smart Workflow Logic ---
+         // 1. Is it already in the active logs? -> Suggest Check Out
+         const isActive = activeLogs.some(log => log.plateNumber === text);
+         
+         if (isActive) {
+             setSuggestedAction('out');
+             setScanStep('action'); // Skip verification, go straight to action
+         } else {
+             // 2. Is it in the registry? -> Suggest Check In
+             const isRegistered = vehicles.some(v => v.plateNumber === text);
+             if (isRegistered) {
+                 setSuggestedAction('in');
+                 setScanStep('action'); // Skip verification
+             } else {
+                 // 3. Not registered -> Stay on verify screen for manual check
+                 setSuggestedAction(null);
+             }
+         }
+      } else {
+         setScannedPlate('');
+      }
+
     } catch (err) {
       console.error("AI Analysis failed:", err);
       alert("Could not analyze image. Please try again or type manually.");
@@ -348,9 +399,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       await OfflineService.checkOut(logId);
       
       // 3. Queue Check Logic (Optimistic)
-      // Since we just freed a slot, we simulate checking the queue
-      // In a real offline scenario, we can't reliably fetch the "next" person from DB
-      // unless we cached the queue. For now, we only trigger queue check if online.
       if (navigator.onLine) {
          await checkForQueue();
       }
@@ -590,13 +638,27 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                )}
 
                {scanStep === 'action' && (
-                 <div className="grid grid-cols-2 gap-4">
-                    <button onClick={() => handleScanAction('in')} className="py-6 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 active:scale-95 transition-all text-xl uppercase shadow-lg shadow-blue-900/20">
-                       Check In
-                    </button>
-                    <button onClick={() => handleScanAction('out')} className="py-6 bg-slate-800 text-emerald-400 font-black rounded-2xl hover:bg-slate-700 active:scale-95 transition-all text-xl uppercase border-2 border-emerald-500/20">
-                       Check Out
-                    </button>
+                 <div className="flex flex-col gap-4">
+                    <div className="bg-slate-800/50 p-4 rounded-2xl text-center border border-slate-700">
+                        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Scanned Plate</p>
+                        <p className="text-3xl font-black text-white">{scannedPlate}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* We highlight the suggested action */}
+                        <button 
+                            onClick={() => handleScanAction('in')} 
+                            className={`py-6 font-black rounded-2xl active:scale-95 transition-all text-xl uppercase ${suggestedAction === 'in' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 hover:bg-blue-700' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                        >
+                            Check In
+                        </button>
+                        <button 
+                            onClick={() => handleScanAction('out')} 
+                            className={`py-6 font-black rounded-2xl active:scale-95 transition-all text-xl uppercase ${suggestedAction === 'out' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 hover:bg-emerald-700' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                        >
+                            Check Out
+                        </button>
+                    </div>
                  </div>
                )}
              </div>
