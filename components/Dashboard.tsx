@@ -258,7 +258,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     const owner = vehicles.find(v => v.plateNumber === queueCandidate.plate_number);
     const nickname = owner ? owner.nickname : 'Guest';
     
-    const message = `Hi ${nickname} owner of ${queueCandidate.plate_number}, Im Berna Property manager of JLYCC, we would like to inform you that we have vacant parking slot for you if you wish to claim this spot, say reply Yes, but if we have no reply a minute or 2 the slot will be given to the next que. Please ask our Kuya Guard to assist you. Thanks`;
+    const message = `Hi ${nickname}, this is Berna (Property Manager, JLYCC). Vacant parking slot available for ${queueCandidate.plate_number}. Reply YES to claim. If no reply in 1-2 mins, slot will be given to next in queue. Please ask Kuya Guard to assist you. Thanks!`;
     return `sms:${queueCandidate.mobile_number}?body=${encodeURIComponent(message)}`;
   };
 
