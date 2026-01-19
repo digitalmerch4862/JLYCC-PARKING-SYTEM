@@ -192,6 +192,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
   // --- Camera & OCR Handlers ---
 
+  const enableTorch = async (stream: MediaStream) => {
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+
+    try {
+      // Modern constraints
+      await track.applyConstraints({
+        advanced: [{ torch: true } as any]
+      });
+    } catch (err) {
+      console.log("Standard torch constraint failed, trying basic options");
+    }
+  };
+
   const startCamera = async () => {
     setIsScannerOpen(true);
     setScanStep('camera');
@@ -199,31 +213,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     setSuggestedAction(null);
     setCapturedImage(null);
     try {
-      const constraints = {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
             facingMode: 'environment',
-            // Try to force torch on immediately
-            advanced: [{ torch: true }] 
-        }
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+        } 
+      });
       
-      // Apply torch track constraint separately to ensure it works on most devices
-      const track = stream.getVideoTracks()[0];
-      try {
-        await track.applyConstraints({
-          advanced: [{ torch: true }]
-        });
-      } catch (err) {
-        console.warn("Flashlight not supported on this device", err);
-      }
-
+      streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
       }
+
+      // Wait a moment for camera to init before enabling torch
+      setTimeout(() => enableTorch(stream), 500);
+
     } catch (err) {
       console.error("Error accessing camera:", err);
       alert("Could not access camera. Please check permissions.");
@@ -233,7 +239,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
   const stopCamera = () => {
     if (streamRef.current) {
-      // Turn off torch before stopping
       const track = streamRef.current.getVideoTracks()[0];
       if (track) {
           track.stop();
@@ -257,28 +262,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
     if (!context) return;
 
-    // Set canvas dimensions to match video
+    // Set canvas dimensions to match video source resolution
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
     // Draw video frame to canvas
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Get base64 string (High Quality)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+    // Get base64 string (Max Quality for OCR)
+    const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
     const base64Data = dataUrl.split(',')[1];
     setCapturedImage(dataUrl);
     
     // Stop camera stream to save battery/resources
     stopCamera();
     
-    // Default to verify step, but we might skip it if confident
     setScanStep('verify');
     setIsAnalyzing(true);
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = "Analyze this image and find the Vehicle License Plate. Return ONLY the alphanumeric characters of the plate. Remove any spaces, dashes, or country names. If you cannot see a plate clearly, strictly return 'UNKNOWN'.";
+      // Optimized Prompt for Gemini
+      const prompt = "Extract the license plate number from this car image. Return ONLY the text characters (letters and numbers). Do not add spaces, hyphens, or labels. If the plate is unreadable, return UNKNOWN.";
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-latest",
@@ -291,25 +296,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       });
       
       let text = (response.text || '').trim().toUpperCase();
-      // Clean up result: remove all non-alphanumeric chars just to be safe
-      text = text.replace(/[^A-Z0-9]/g, '');
+      // Aggressive cleanup: retain only alphanumeric
+      const cleanText = text.replace(/[^A-Z0-9]/g, '');
 
-      if (text && text !== 'UNKNOWN') {
-         setScannedPlate(text);
+      if (cleanText && cleanText !== 'UNKNOWN' && cleanText.length > 2) {
+         setScannedPlate(cleanText);
          
          // --- Smart Workflow Logic ---
          // 1. Is it already in the active logs? -> Suggest Check Out
-         const isActive = activeLogs.some(log => log.plateNumber === text);
+         const isActive = activeLogs.some(log => log.plateNumber === cleanText);
          
          if (isActive) {
              setSuggestedAction('out');
-             setScanStep('action'); // Skip verification, go straight to action
+             setScanStep('action'); // Skip verification for exact match
          } else {
              // 2. Is it in the registry? -> Suggest Check In
-             const isRegistered = vehicles.some(v => v.plateNumber === text);
+             const isRegistered = vehicles.some(v => v.plateNumber === cleanText);
              if (isRegistered) {
                  setSuggestedAction('in');
-                 setScanStep('action'); // Skip verification
+                 setScanStep('action'); // Skip verification for exact match
              } else {
                  // 3. Not registered -> Stay on verify screen for manual check
                  setSuggestedAction(null);
@@ -317,11 +322,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
          }
       } else {
          setScannedPlate('');
+         // Stay on verify screen to let user type manually if OCR failed
       }
 
     } catch (err) {
       console.error("AI Analysis failed:", err);
-      alert("Could not analyze image. Please try again or type manually.");
+      // Don't alert, just let them type
     } finally {
       setIsAnalyzing(false);
     }
