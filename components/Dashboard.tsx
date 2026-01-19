@@ -195,7 +195,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         advanced: [{ torch: true } as any]
       });
     } catch (err) {
-      // Torch might not be available or supported on this device
       console.log("Torch constraint failed or not supported.");
     }
   };
@@ -283,8 +282,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      // Strict Prompt for No Spacing
-      const prompt = "Read the license plate characters in this image. Return ONLY the uppercase letters and numbers joined together (e.g. ABC1234). Do NOT include spaces, dashes, or special characters. If you cannot see a clear plate, return exactly the word UNKNOWN.";
+      // Strict Prompt for No Spacing and filtering slogans
+      const prompt = "Analyze this Philippine license plate. Ignore slogans like 'MATATAG NA REPUBLIKA', 'LTO', region names, or stickers. Return ONLY the main registration characters (uppercase letters and numbers) joined together with NO spaces or dashes (e.g., ABC1234). If the plate is unreadable or too blurry, return exactly the word UNKNOWN.";
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-latest", // Fast model
@@ -757,7 +756,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                <div className="relative z-10 flex flex-col h-full">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm">
-                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                     </div>
                     <p className="text-blue-100 text-xs font-black uppercase tracking-widest">Live Occupancy</p>
                   </div>
