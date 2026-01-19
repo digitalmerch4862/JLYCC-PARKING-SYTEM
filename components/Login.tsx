@@ -10,8 +10,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(false);
-  // Default to true to show form immediately, hiding selection buttons
-  const [showFields, setShowFields] = useState(true); 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,6 +38,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       setError(true);
       setTimeout(() => setError(false), 3000);
     }
+  };
+
+  const handleGuestLogin = () => {
+    onLogin({
+      userName: 'Guest',
+      roleName: 'Guest'
+    });
   };
 
   // SMS link for the developer
@@ -95,6 +100,20 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   className="w-full py-5 bg-[#2563eb] hover:bg-blue-600 text-white font-black rounded-[1.25rem] transition-all shadow-[0_15px_30px_-5px_rgba(37,99,235,0.4)] active:scale-[0.98] text-[17px]"
                 >
                   Sign In
+                </button>
+
+                <div className="relative flex py-2 items-center">
+                    <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                    <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-widest">Or</span>
+                    <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGuestLogin}
+                  className="w-full py-5 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black rounded-[1.25rem] transition-all border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-blue-600 dark:hover:text-white active:scale-[0.98] text-[17px]"
+                >
+                  Continue as Guest
                 </button>
               </form>
           </div>

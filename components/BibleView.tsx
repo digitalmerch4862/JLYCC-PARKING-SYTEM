@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 
 interface BibleVerse {
   book_name: string;
@@ -15,24 +16,51 @@ interface BibleResponse {
   error?: string;
 }
 
+const BIBLE_BOOKS = [
+  "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth", 
+  "1 Samuel", "2 Samuel", "1 Kings", "2 Kings", "1 Chronicles", "2 Chronicles", "Ezra", 
+  "Nehemiah", "Esther", "Job", "Psalms", "Proverbs", "Ecclesiastes", 
+  "Song of Solomon (Song of Songs)", "Isaiah", "Jeremiah", "Lamentations", "Ezekiel", 
+  "Daniel", "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah", "Nahum", "Habakkuk", 
+  "Zephaniah", "Haggai", "Zechariah", "Malachi", "Matthew", "Mark", "Luke", "John", 
+  "Acts", "Romans", "1 Corinthians", "2 Corinthians", "Galatians", "Ephesians", 
+  "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians", "1 Timothy", 
+  "2 Timothy", "Titus", "Philemon", "Hebrews", "James", "1 Peter", "2 Peter", 
+  "1 John", "2 John", "3 John", "Jude", "Revelation"
+];
+
 const BibleView: React.FC = () => {
   // Set default verse to John 3:16
-  const [query, setQuery] = useState('John 3:16');
   const [searchTrigger, setSearchTrigger] = useState('John 3:16');
-  
   const [version, setVersion] = useState<'KJV' | 'NIV'>('KJV');
+  
+  // Search state
+  const [bookQuery, setBookQuery] = useState('John');
+  const [chapter, setChapter] = useState('3');
+  const [verse, setVerse] = useState('16');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const [bibleData, setBibleData] = useState<BibleResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Click outside listener
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const fetchBible = async () => {
       setLoading(true);
       setError('');
       
-      // MAPPING: bible-api.com does not support NIV (Copyright). 
-      // We use 'web' (World English Bible) as a modern English fallback 
-      // so the app functions exactly like KJV (displaying text locally).
       const apiTranslation = version === 'NIV' ? 'web' : 'kjv';
 
       try {
@@ -42,7 +70,7 @@ const BibleView: React.FC = () => {
         const data = await res.json();
         setBibleData(data);
       } catch (err) {
-        setError('Could not find passage. Please try a standard format like "John 3:16" or "Psalm 23".');
+        setError('Could not find passage. Please check the book, chapter, and verse.');
         setBibleData(null);
       } finally {
         setLoading(false);
@@ -54,7 +82,26 @@ const BibleView: React.FC = () => {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) setSearchTrigger(query);
+    if (!bookQuery.trim() || !chapter.trim()) {
+        setError('Please enter at least a Book and a Chapter.');
+        return;
+    }
+    
+    // Sanitize book name for API (remove parenthetical aliases like "(Song of Songs)")
+    const cleanBook = bookQuery.replace(/\s*\(.*?\)\s*/g, '');
+    const q = `${cleanBook} ${chapter}${verse.trim() ? ':' + verse : ''}`;
+    
+    setSearchTrigger(q);
+    setIsDropdownOpen(false);
+  };
+
+  const filteredBooks = BIBLE_BOOKS.filter(b => 
+    b.toLowerCase().includes(bookQuery.toLowerCase())
+  );
+
+  const selectBook = (b: string) => {
+    setBookQuery(b);
+    setIsDropdownOpen(false);
   };
 
   return (
@@ -93,24 +140,78 @@ const BibleView: React.FC = () => {
               </button>
            </div>
 
-           <form onSubmit={handleSearch} className="relative group">
-              <svg className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Enter passage (e.g. Psalm 23, John 3:16)"
-                  className="w-full pl-14 pr-6 py-4 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-100 dark:border-slate-800 rounded-2xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-bold text-lg text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
-                />
-                <button type="submit" className="px-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black transition-all shadow-lg shadow-indigo-500/20">
-                   GO
-                </button>
+           <form onSubmit={handleSearch} className="flex flex-col lg:flex-row gap-4">
+              <div className="flex-1 grid grid-cols-12 gap-3">
+                {/* Book Dropdown */}
+                <div className="col-span-12 sm:col-span-6 relative" ref={dropdownRef}>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Select Book"
+                      value={bookQuery}
+                      onChange={(e) => {
+                        setBookQuery(e.target.value);
+                        setIsDropdownOpen(true);
+                      }}
+                      onFocus={() => setIsDropdownOpen(true)}
+                      className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-100 dark:border-slate-800 rounded-2xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold text-slate-800 dark:text-slate-200"
+                    />
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                    </div>
+                  </div>
+                  
+                  {isDropdownOpen && (
+                    <div className="absolute z-50 w-full mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl max-h-60 overflow-y-auto">
+                      {filteredBooks.length > 0 ? (
+                        filteredBooks.map((b) => (
+                          <div
+                            key={b}
+                            onClick={() => selectBook(b)}
+                            className={`px-5 py-3 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-500/20 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors font-medium text-slate-700 dark:text-slate-300 ${bookQuery === b ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600' : ''}`}
+                          >
+                            {b}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-5 py-3 text-slate-400 italic text-sm">No books found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Chapter */}
+                <div className="col-span-6 sm:col-span-3">
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Ch"
+                    value={chapter}
+                    onChange={(e) => setChapter(e.target.value)}
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-100 dark:border-slate-800 rounded-2xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold text-slate-800 dark:text-slate-200 text-center"
+                  />
+                </div>
+
+                {/* Verse */}
+                <div className="col-span-6 sm:col-span-3">
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="Ver"
+                    value={verse}
+                    onChange={(e) => setVerse(e.target.value)}
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-100 dark:border-slate-800 rounded-2xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold text-slate-800 dark:text-slate-200 text-center"
+                  />
+                </div>
               </div>
+
+              <button type="submit" className="w-full lg:w-auto px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black transition-all shadow-lg shadow-indigo-500/20 whitespace-nowrap">
+                 SEARCH
+              </button>
            </form>
         </div>
 
-        {/* Content Area - Unified for both versions */}
+        {/* Content Area */}
         <div className="flex-1 py-8">
              {loading ? (
                  <div className="flex flex-col items-center justify-center h-48 space-y-4">
