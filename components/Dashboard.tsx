@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { LogEntry, User, Vehicle } from '../types';
 import { MAX_CAPACITY, maskPhone } from '../services/storage';
@@ -42,23 +43,26 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   const [suggestedAction, setSuggestedAction] = useState<'in' | 'out' | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  
+  // Refs for Camera & Loop
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<any>(null); // To store the loop timer
+  const isAnalyzingRef = useRef(false); // To prevent overlapping AI calls
 
   const isAdmin = user.roleName === 'Admin';
   const isSuper = user.isSuperAdmin === true;
   const MAP_URL = "https://maps.app.goo.gl/NXSLHHjoF3P3ByF89";
   const ADMIN_PHONE = "09694887065";
 
-  // Reconnection Manager & Data Fetcher
+  // --- Data Fetching ---
   const fetchData = async () => {
     try {
-      // 1. Fetch "Real" Data from Supabase
       const { data: logsData } = await supabase
         .from('parking_logs')
         .select('*')
-        .is('check_out', null) // Only fetch active logs for dashboard
+        .is('check_out', null)
         .order('check_in', { ascending: false });
 
       const { data: vehiclesData } = await supabase
@@ -69,10 +73,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         .from('street_queue')
         .select('*', { count: 'exact', head: true });
 
-      // 2. Fetch "Local" Offline Queue
       const offlineQueue = OfflineService.getQueue();
       
-      // 3. Process Active Logs (Merge Real + Offline Insertions - Offline Deletions)
       let mergedLogs = (logsData || []).map((record: any) => ({
         id: record.id,
         plateNumber: record.plate_number,
@@ -87,11 +89,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         attendantName: record.attendant_name
       }));
 
-      // Add offline check-ins to the list optimistically
       const offlineCheckIns = offlineQueue
         .filter(q => q.type === 'CHECK_IN')
         .map(q => ({
-          id: q.payload.tempId || 'temp-id', // Use temp ID
+          id: q.payload.tempId || 'temp-id',
           plateNumber: q.payload.plate_number,
           vehicleModel: q.payload.vehicle_model,
           vehicleColor: q.payload.vehicle_color,
@@ -104,19 +105,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
           attendantName: q.payload.attendant_name
         }));
 
-      // Identify offline check-outs
       const offlineCheckOutIds = new Set(
         offlineQueue
         .filter(q => q.type === 'CHECK_OUT')
         .map(q => q.payload.id)
       );
 
-      // Merge: (Real + OfflineIn) - OfflineOut
       const finalLogs = [...mergedLogs, ...offlineCheckIns].filter(
         log => !offlineCheckOutIds.has(log.id)
       );
 
-      // Map vehicles for owner lookup
       const mappedVehicles = (vehiclesData || []).map((record: any) => ({
         id: record.id,
         plateNumber: record.plate_number,
@@ -128,7 +126,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         email: record.email
       }));
 
-      // Adjust Street Queue Count based on offline add/remove
       const offlineQueueAdds = offlineQueue.filter(q => q.type === 'QUEUE_ADD').length;
       const offlineQueueRemoves = offlineQueue.filter(q => q.type === 'QUEUE_REMOVE').length;
       const finalQueueCount = Math.max(0, (queueCount || 0) + offlineQueueAdds - offlineQueueRemoves);
@@ -143,7 +140,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   };
 
   useEffect(() => {
-    // Initial Setup
     const init = async () => {
       setLoading(true);
       await fetchData();
@@ -153,7 +149,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
     if (isMounted) init();
 
-    // Polling & Events
     const handleOnline = () => {
       setIsOnline(true);
       OfflineService.processQueue().then(() => fetchData());
@@ -163,14 +158,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Sync Interval (Every 10 seconds)
     const syncInterval = setInterval(() => {
       if (navigator.onLine) {
         OfflineService.processQueue().then(() => fetchData());
       }
     }, 10000);
 
-    // Realtime Subscriptions
     const logsSub = supabase
       .channel('dashboard_logs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'parking_logs' }, () => fetchData())
@@ -190,19 +183,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     };
   }, [isMounted]);
 
-  // --- Camera & OCR Handlers ---
+  // --- Auto-Scanning Logic ---
 
   const enableTorch = async (stream: MediaStream) => {
     const track = stream.getVideoTracks()[0];
     if (!track) return;
 
     try {
-      // Modern constraints
+      // Force flashlight on for better OCR
       await track.applyConstraints({
         advanced: [{ torch: true } as any]
       });
     } catch (err) {
-      console.log("Standard torch constraint failed, trying basic options");
+      console.log("Torch not supported on this device/browser");
     }
   };
 
@@ -212,6 +205,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     setScannedPlate('');
     setSuggestedAction(null);
     setCapturedImage(null);
+    setIsAnalyzing(false);
+    isAnalyzingRef.current = false;
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
@@ -227,8 +223,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         videoRef.current.play();
       }
 
-      // Wait a moment for camera to init before enabling torch
+      // 1. Enable Flash
       setTimeout(() => enableTorch(stream), 500);
+
+      // 2. Start Auto-Scan Loop (Every 1.5 seconds)
+      scanIntervalRef.current = setInterval(performAutoScan, 1500);
 
     } catch (err) {
       console.error("Error accessing camera:", err);
@@ -238,11 +237,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   };
 
   const stopCamera = () => {
+    // Stop Loop
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+
+    // Stop Stream
     if (streamRef.current) {
-      const track = streamRef.current.getVideoTracks()[0];
-      if (track) {
-          track.stop();
-      }
+      streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
   };
@@ -253,40 +256,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     setIsAnalyzing(false);
   };
 
-  const captureAndAnalyze = async () => {
+  // The Silent Loop Function
+  const performAutoScan = async () => {
+    // If already busy with a request, skip this tick
+    if (isAnalyzingRef.current) return;
     if (!videoRef.current || !canvasRef.current) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d');
-
     if (!context) return;
 
-    // Set canvas dimensions to match video source resolution
+    // Capture Frame
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-
-    // Draw video frame to canvas
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Get base64 string (Max Quality for OCR)
-    const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
     const base64Data = dataUrl.split(',')[1];
-    setCapturedImage(dataUrl);
-    
-    // Stop camera stream to save battery/resources
-    stopCamera();
-    
-    setScanStep('verify');
-    setIsAnalyzing(true);
+
+    isAnalyzingRef.current = true;
+    setIsAnalyzing(true); // Triggers UI "Thinking" state if needed
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      // Optimized Prompt for Gemini
-      const prompt = "Extract the license plate number from this car image. Return ONLY the text characters (letters and numbers). Do not add spaces, hyphens, or labels. If the plate is unreadable, return UNKNOWN.";
+      const prompt = "Read the license plate in this image. Return ONLY the alphanumeric characters (e.g., ABC1234). No spaces, no hyphens. If you cannot see a clear plate, return exactly the word UNKNOWN.";
       
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-latest",
+        model: "gemini-2.5-flash-latest", // Fast model
         contents: {
             parts: [
                 { text: prompt },
@@ -295,41 +291,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         }
       });
       
-      let text = (response.text || '').trim().toUpperCase();
-      // Aggressive cleanup: retain only alphanumeric
-      const cleanText = text.replace(/[^A-Z0-9]/g, '');
+      const text = (response.text || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-      if (cleanText && cleanText !== 'UNKNOWN' && cleanText.length > 2) {
-         setScannedPlate(cleanText);
-         
-         // --- Smart Workflow Logic ---
-         // 1. Is it already in the active logs? -> Suggest Check Out
-         const isActive = activeLogs.some(log => log.plateNumber === cleanText);
-         
-         if (isActive) {
-             setSuggestedAction('out');
-             setScanStep('action'); // Skip verification for exact match
-         } else {
-             // 2. Is it in the registry? -> Suggest Check In
-             const isRegistered = vehicles.some(v => v.plateNumber === cleanText);
-             if (isRegistered) {
-                 setSuggestedAction('in');
-                 setScanStep('action'); // Skip verification for exact match
-             } else {
-                 // 3. Not registered -> Stay on verify screen for manual check
-                 setSuggestedAction(null);
-             }
-         }
+      // VALIDATION: Must be > 2 chars and NOT "UNKNOWN"
+      if (text && text !== 'UNKNOWN' && text.length > 2) {
+         // Success! Lock it in.
+         foundPlate(text, dataUrl);
       } else {
-         setScannedPlate('');
-         // Stay on verify screen to let user type manually if OCR failed
+         // Silently fail, let loop continue
+         // console.log("Scanning... no plate found");
       }
 
     } catch (err) {
-      console.error("AI Analysis failed:", err);
-      // Don't alert, just let them type
+      console.warn("Silent scan error:", err);
     } finally {
+      isAnalyzingRef.current = false;
       setIsAnalyzing(false);
+    }
+  };
+
+  // Called when AI successfully finds a plate
+  const foundPlate = (plate: string, image: string) => {
+    // 1. Stop the camera/loop
+    stopCamera();
+
+    // 2. Set State
+    setScannedPlate(plate);
+    setCapturedImage(image);
+    
+    // 3. Determine Logic
+    const isActive = activeLogs.some(log => log.plateNumber === plate);
+    const isRegistered = vehicles.some(v => v.plateNumber === plate);
+
+    if (isActive) {
+        setSuggestedAction('out');
+        setScanStep('action'); // Skip verify, go straight to buttons
+    } else if (isRegistered) {
+        setSuggestedAction('in');
+        setScanStep('action'); // Skip verify, go straight to buttons
+    } else {
+        setSuggestedAction(null);
+        setScanStep('verify'); // Unknown car, verify text first
     }
   };
 
@@ -337,33 +339,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     const plate = scannedPlate.toUpperCase();
     
     if (type === 'out') {
-      // Find active log
       const log = activeLogs.find(l => l.plateNumber === plate);
       if (log) {
         await handleCheckOut(log.id);
         closeScanner();
       } else {
-        alert(`Vehicle with plate ${plate} is not currently checked in.`);
+        alert(`Vehicle ${plate} is not currently checked in.`);
       }
     } else {
-      // Check In
-      // 1. Check if already checked in
+      // Check In Logic
       if (activeLogs.some(l => l.plateNumber === plate)) {
         alert(`Vehicle ${plate} is already checked in.`);
         return;
       }
 
-      // 2. Find in Registry
       const registeredVehicle = vehicles.find(v => v.plateNumber === plate);
       
       if (!registeredVehicle) {
-        alert(`Vehicle ${plate} not found in registry. Please use the standard 'New Check-In' button to register or check in.`);
+        alert(`Vehicle ${plate} not found in registry. Use the manual form to register guests.`);
         return;
       }
 
-      // 3. Perform Check In (mimic CheckInView logic)
       const isFull = (activeLogs.length + (availableSlots > 0 ? 0 : streetQueueCount)) >= MAX_CAPACITY;
-      
       const basePayload = {
         plate_number: registeredVehicle.plateNumber,
         mobile_number: registeredVehicle.mobileNumber,
@@ -374,7 +371,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       try {
         if (isFull) {
           await OfflineService.addToStreetQueue(basePayload);
-          alert(`Parking full! ${plate} added to Street Queue.`);
+          alert(`Parking full! ${plate} queued.`);
         } else {
            const logPayload = {
             ...basePayload,
@@ -394,58 +391,31 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     }
   };
 
-
+  // --- Standard Check Out/Queue Logic (Unchanged) ---
   const handleCheckOut = async (logId: string) => {
-    // OPTIMISTIC UPDATE
-    // 1. Update UI immediately
     setActiveLogs(prev => prev.filter(log => log.id !== logId));
-
-    // 2. Perform Action via OfflineService
     try {
       await OfflineService.checkOut(logId);
-      
-      // 3. Queue Check Logic (Optimistic)
-      if (navigator.onLine) {
-         await checkForQueue();
-      }
-    } catch (err) {
-      console.error("Checkout handling error:", err);
-    }
+      if (navigator.onLine) await checkForQueue();
+    } catch (err) { console.error("Checkout error", err); }
   };
 
   const checkForQueue = async () => {
-    try {
-      const { data } = await supabase
-        .from('street_queue')
-        .select('*')
-        .order('entry_time', { ascending: true })
-        .limit(1);
-
-      if (data && data.length > 0) {
-        setQueueCandidate(data[0]);
-        setIsQueueModalOpen(true);
-      } else {
-        setIsQueueModalOpen(false);
-        setQueueCandidate(null);
-      }
-    } catch (err) {
-      console.error("Error fetching queue:", err);
+    const { data } = await supabase.from('street_queue').select('*').order('entry_time', { ascending: true }).limit(1);
+    if (data && data.length > 0) {
+      setQueueCandidate(data[0]);
+      setIsQueueModalOpen(true);
     }
   };
 
   const handleQueueDecision = async (action: 'accept' | 'reject') => {
     if (!queueCandidate) return;
     setResolvingQueue(true);
-
     try {
       if (action === 'accept') {
         const ownerDetails = vehicles.find(v => v.plateNumber === queueCandidate.plate_number) || {
-          vehicleColor: 'UNKNOWN',
-          familyName: 'GUEST',
-          nickname: 'GUEST',
-          email: null
+          vehicleColor: 'UNKNOWN', familyName: 'GUEST', nickname: 'GUEST', email: null
         };
-
         const logPayload = {
           plate_number: queueCandidate.plate_number,
           mobile_number: queueCandidate.mobile_number,
@@ -457,9 +427,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
           attendant_name: user.userName,
           check_in: new Date().toISOString()
         };
-
-        // Optimistic UI Update for Queue Accept
-        // 1. Add to Active Logs
         const newLog: LogEntry = {
             id: 'temp-q-' + Date.now(),
             plateNumber: logPayload.plate_number,
@@ -475,33 +442,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         };
         setActiveLogs(prev => [newLog, ...prev]);
         setStreetQueueCount(prev => Math.max(0, prev - 1));
-
-        // 2. Perform DB Actions (via Offline Service Logic)
         await OfflineService.checkIn(logPayload);
         await OfflineService.removeFromStreetQueue(queueCandidate.id);
-        
         setIsQueueModalOpen(false);
         setQueueCandidate(null);
-
       } else {
-        // REJECT
         await OfflineService.removeFromStreetQueue(queueCandidate.id);
         if (navigator.onLine) await checkForQueue();
-        else {
-             setIsQueueModalOpen(false); // Can't fetch next if offline
-        }
+        else setIsQueueModalOpen(false);
       }
-    } catch (err) {
-      console.error("Error resolving queue:", err);
-      alert("An error occurred while processing the queue.");
-    } finally {
-      setResolvingQueue(false);
-    }
+    } catch (err) { alert("Queue error"); } finally { setResolvingQueue(false); }
   };
 
-  const getOwnersForPlate = (plate: string) => {
-    return vehicles.filter(v => v.plateNumber.toUpperCase() === plate.toUpperCase());
-  };
+  const getOwnersForPlate = (plate: string) => vehicles.filter(v => v.plateNumber.toUpperCase() === plate.toUpperCase());
 
   const verifyAndContact = (type: 'call' | 'sms') => {
     if (typeof window === 'undefined') return;
@@ -514,15 +467,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     window.location.href = type === 'call' ? `tel:${ADMIN_PHONE}` : `sms:${ADMIN_PHONE}`;
   };
 
-  // Safe Guard for Mobile
   if (!isMounted) return null;
 
-  // Metrics Logic
   const activeCount = activeLogs.length; 
   const availableSlots = Math.max(0, MAX_CAPACITY - activeCount);
   const displayQueueCount = availableSlots > 0 ? 0 : streetQueueCount;
   const totalOccupancy = activeCount + displayQueueCount;
-  
   const wheels4 = activeLogs.filter(l => l.vehicleModel === '4 WHEELS').length;
   const wheels3 = activeLogs.filter(l => l.vehicleModel === '3 WHEELS').length;
   const wheels2 = activeLogs.filter(l => l.vehicleModel === '2 WHEELS').length;
@@ -537,138 +487,129 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     if (!queueCandidate) return '#';
     const owner = vehicles.find(v => v.plateNumber === queueCandidate.plate_number);
     const nickname = owner ? owner.nickname : 'Guest';
-    const message = `Hi ${nickname}, this is Berna (Property Manager, JLYCC). Vacant parking slot available for ${queueCandidate.plate_number}. Reply YES to claim. If no reply in 1-2 mins, slot will be given to next in queue. Please ask Kuya Guard to assist you. Thanks!`;
+    const message = `Hi ${nickname}, this is Berna (Property Manager, JLYCC). Vacant parking slot available for ${queueCandidate.plate_number}. Reply YES to claim.`;
     return `sms:${queueCandidate.mobile_number}?body=${encodeURIComponent(message)}`;
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center min-h-[400px]"><div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>;
 
   return (
     <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 relative">
+      
+      <style>{`
+        @keyframes scan {
+          0% { top: 0%; opacity: 0; }
+          10% { opacity: 1; }
+          90% { opacity: 1; }
+          100% { top: 100%; opacity: 0; }
+        }
+        .animate-scan {
+          animation: scan 2s linear infinite;
+        }
+      `}</style>
+
       {errorNote && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md bg-slate-900 text-white p-6 rounded-[2rem] shadow-2xl border-4 border-blue-600 animate-in slide-in-from-top-10 duration-300">
           <div className="flex items-start gap-4">
-             <div className="bg-blue-600 p-2 rounded-xl shrink-0">
-               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-               </svg>
-             </div>
-             <div>
-               <p className="font-black uppercase text-xs tracking-widest text-blue-400 mb-1">Access Denied</p>
-               <p className="text-sm font-bold leading-relaxed">Note: This function is designated for checked-in vehicles only.</p>
-             </div>
+             <div className="bg-blue-600 p-2 rounded-xl shrink-0"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
+             <div><p className="font-black uppercase text-xs tracking-widest text-blue-400 mb-1">Access Denied</p><p className="text-sm font-bold leading-relaxed">Note: This function is designated for checked-in vehicles only.</p></div>
           </div>
         </div>
       )}
 
-      {/* Camera / Scanner Modal */}
+      {/* --- QR Style Scanner Modal --- */}
       {isScannerOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 relative flex flex-col h-auto max-h-[90vh]">
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center">
+          <div className="relative w-full h-full flex flex-col">
              
-             {/* Header */}
-             <div className="p-6 flex items-center justify-between border-b border-slate-800 shrink-0">
-               <h3 className="text-white font-black text-xl tracking-tight">
-                 {scanStep === 'camera' ? 'Scan License Plate' : scanStep === 'verify' ? 'Confirm Scan' : 'Select Action'}
-               </h3>
-               <button onClick={closeScanner} className="p-2 bg-slate-800 text-slate-400 rounded-full hover:text-white">
+             {/* Scanner Header */}
+             <div className="absolute top-0 left-0 right-0 z-20 p-6 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent">
+               <div>
+                 <h3 className="text-white font-black text-xl tracking-tight shadow-sm">AI Scanner</h3>
+                 <p className="text-white/70 text-xs font-bold uppercase tracking-widest">
+                    {scanStep === 'camera' ? 'Detecting Plate...' : 'Processing...'}
+                 </p>
+               </div>
+               <button onClick={closeScanner} className="p-3 bg-white/10 backdrop-blur-md text-white rounded-full hover:bg-white/20">
                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                </button>
              </div>
 
-             {/* Content */}
-             <div className="relative flex-1 overflow-y-auto bg-black">
-                {scanStep === 'camera' && (
-                  <div className="relative w-full h-full min-h-[400px] flex items-center justify-center bg-black">
+             {/* Main Viewport */}
+             <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+                {scanStep === 'camera' ? (
+                  <>
                     <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
                     <canvas ref={canvasRef} className="hidden" />
-                    <div className="absolute inset-0 border-[3px] border-blue-500/50 m-12 rounded-3xl pointer-events-none flex items-center justify-center">
-                       <p className="text-blue-200/50 text-xs font-black uppercase tracking-widest bg-black/50 px-3 py-1 rounded-full">Align Plate Here</p>
-                    </div>
-                  </div>
-                )}
-
-                {scanStep === 'verify' && (
-                  <div className="p-8 space-y-6 bg-slate-900">
-                    {capturedImage && (
-                      <div className="w-full h-48 rounded-3xl overflow-hidden border border-slate-700 bg-black">
-                        <img src={capturedImage} alt="Captured" className="w-full h-full object-contain" />
-                      </div>
-                    )}
                     
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Detected Plate</label>
-                       {isAnalyzing ? (
-                         <div className="w-full h-14 bg-slate-800 rounded-2xl animate-pulse flex items-center px-4">
-                            <span className="text-slate-500 text-sm font-bold">Analyzing image...</span>
+                    {/* Scanner Overlay UI */}
+                    <div className="relative w-[80%] max-w-sm aspect-square border-2 border-white/30 rounded-3xl overflow-hidden shadow-[0_0_9999px_rgba(0,0,0,0.5)]">
+                       {/* Corner Markers */}
+                       <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-blue-500 rounded-tl-xl"></div>
+                       <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-blue-500 rounded-tr-xl"></div>
+                       <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-blue-500 rounded-bl-xl"></div>
+                       <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-blue-500 rounded-br-xl"></div>
+                       
+                       {/* Laser Scan Line */}
+                       <div className="absolute left-0 right-0 h-1 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-scan"></div>
+                       
+                       {isAnalyzing && (
+                         <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                           <p className="text-white font-black text-xs uppercase tracking-widest bg-black/50 px-3 py-1 rounded-full animate-pulse">Analyzing...</p>
                          </div>
-                       ) : (
-                         <input 
-                           type="text" 
-                           value={scannedPlate}
-                           onChange={(e) => setScannedPlate(e.target.value.toUpperCase().replace(/\s/g, ''))}
-                           className="w-full px-5 py-4 bg-slate-800 border-2 border-slate-700 rounded-2xl outline-none focus:border-blue-500 text-2xl font-black text-white uppercase text-center tracking-wider"
-                           placeholder="UNKNOWN"
-                         />
                        )}
                     </div>
+                    <p className="absolute bottom-20 text-white/50 text-xs font-bold uppercase tracking-widest text-center w-full">Point at License Plate</p>
+                  </>
+                ) : (
+                  // Verification / Action Screen
+                  <div className="w-full max-w-md p-6 space-y-6 bg-slate-900 m-4 rounded-[2.5rem] border border-slate-800 shadow-2xl relative z-30">
+                     {capturedImage && (
+                       <div className="w-full h-40 rounded-3xl overflow-hidden bg-black border border-slate-700 relative">
+                         <img src={capturedImage} alt="Scanned" className="w-full h-full object-contain" />
+                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center pb-4">
+                            <span className="text-white/80 text-[10px] font-black uppercase tracking-widest">Captured Frame</span>
+                         </div>
+                       </div>
+                     )}
+
+                     <div className="text-center space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Detected Plate</label>
+                        <input 
+                          type="text" 
+                          value={scannedPlate}
+                          onChange={(e) => setScannedPlate(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                          className="w-full bg-transparent text-4xl font-black text-white text-center outline-none border-b-2 border-slate-700 focus:border-blue-500 py-2 uppercase tracking-wider"
+                        />
+                     </div>
+
+                     <div className="grid grid-cols-2 gap-4 pt-2">
+                        {scanStep === 'verify' ? (
+                           <>
+                             <button onClick={startCamera} className="py-4 bg-slate-800 text-slate-400 font-bold rounded-2xl hover:bg-slate-700">Retake</button>
+                             <button onClick={() => setScanStep('action')} className="py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-900/20">Confirm</button>
+                           </>
+                        ) : (
+                           <>
+                             <button 
+                               onClick={() => handleScanAction('in')} 
+                               className={`py-5 font-black rounded-2xl text-lg uppercase transition-all ${suggestedAction === 'in' ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/30 scale-105' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                             >
+                               Check In
+                             </button>
+                             <button 
+                               onClick={() => handleScanAction('out')} 
+                               className={`py-5 font-black rounded-2xl text-lg uppercase transition-all ${suggestedAction === 'out' ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/30 scale-105' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                             >
+                               Check Out
+                             </button>
+                           </>
+                        )}
+                     </div>
+                     <button onClick={startCamera} className="w-full py-3 text-slate-500 text-xs font-bold uppercase tracking-widest hover:text-white">Scan Again</button>
                   </div>
                 )}
              </div>
-
-             {/* Footer Actions */}
-             <div className="p-6 border-t border-slate-800 bg-slate-900 shrink-0">
-               {scanStep === 'camera' && (
-                 <button onClick={captureAndAnalyze} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl text-lg hover:bg-blue-700 active:scale-95 transition-all shadow-xl shadow-blue-900/20">
-                   Capture Photo
-                 </button>
-               )}
-
-               {scanStep === 'verify' && !isAnalyzing && (
-                 <div className="flex gap-4">
-                   <button onClick={startCamera} className="flex-1 py-4 bg-slate-800 text-slate-300 font-bold rounded-2xl hover:bg-slate-700">Retake</button>
-                   <button 
-                    onClick={() => setScanStep('action')} 
-                    disabled={!scannedPlate}
-                    className="flex-1 py-4 bg-emerald-600 text-white font-black rounded-2xl hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-emerald-900/20"
-                   >
-                     Confirm
-                   </button>
-                 </div>
-               )}
-
-               {scanStep === 'action' && (
-                 <div className="flex flex-col gap-4">
-                    <div className="bg-slate-800/50 p-4 rounded-2xl text-center border border-slate-700">
-                        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Scanned Plate</p>
-                        <p className="text-3xl font-black text-white">{scannedPlate}</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* We highlight the suggested action */}
-                        <button 
-                            onClick={() => handleScanAction('in')} 
-                            className={`py-6 font-black rounded-2xl active:scale-95 transition-all text-xl uppercase ${suggestedAction === 'in' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 hover:bg-blue-700' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-                        >
-                            Check In
-                        </button>
-                        <button 
-                            onClick={() => handleScanAction('out')} 
-                            className={`py-6 font-black rounded-2xl active:scale-95 transition-all text-xl uppercase ${suggestedAction === 'out' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 hover:bg-emerald-700' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-                        >
-                            Check Out
-                        </button>
-                    </div>
-                 </div>
-               )}
-             </div>
-
           </div>
         </div>
       )}
@@ -712,13 +653,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         </div>
       )}
 
+      {/* Main Dashboard UI */}
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div>
           <div className="flex items-center gap-3">
              <h2 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
                {isAdmin ? 'System Overview' : 'Parking Availability'}
              </h2>
-             {/* Status Indicator */}
              <div className="relative flex items-center justify-center w-5 h-5">
                <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${isOnline ? 'bg-emerald-400' : 'bg-orange-400'}`}></span>
                <span className={`relative inline-flex rounded-full h-3 w-3 ${isOnline ? 'bg-emerald-500' : 'bg-orange-500'}`}></span>
@@ -732,8 +673,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
           <div className="flex gap-2 w-full sm:w-auto">
              <button 
                 onClick={startCamera}
-                className="flex items-center justify-center px-4 py-4 bg-slate-900 dark:bg-slate-800 text-white rounded-[1.25rem] hover:bg-slate-700 transition-all active:scale-95"
-                title="Scan License Plate"
+                className="flex items-center justify-center px-4 py-4 bg-slate-900 dark:bg-slate-800 text-white rounded-[1.25rem] hover:bg-slate-700 transition-all active:scale-95 shadow-lg shadow-slate-900/20"
+                title="Open Scanner"
              >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
              </button>
@@ -750,7 +691,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         )}
       </header>
 
-      {/* Stats Cards ... (Keep existing layout) */}
+      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
         <div className="bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center text-center">
           <div className="space-y-6 w-full max-w-[200px]">
@@ -837,31 +778,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       {isAdmin && (
         <div className="w-full grid grid-cols-3 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
-            <div>
-               <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">4 Wheels</p>
-               <p className="text-2xl font-black text-slate-900 dark:text-white">{wheels4}</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10h14a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2z M7 10V7a3 3 0 013-3h4a3 3 0 013 3v3 M7 16a2 2 0 11-4 0 2 2 0 014 0zm14 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-            </div>
+            <div><p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">4 Wheels</p><p className="text-2xl font-black text-slate-900 dark:text-white">{wheels4}</p></div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10h14a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2z M7 10V7a3 3 0 013-3h4a3 3 0 013 3v3 M7 16a2 2 0 11-4 0 2 2 0 014 0zm14 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg></div>
           </div>
           <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
-            <div>
-               <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">3 Wheels</p>
-               <p className="text-2xl font-black text-slate-900 dark:text-white">{wheels3}</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 10h12l2-4H6l-2 4zm0 0v6a2 2 0 002 2h8a2 2 0 002-2v-6M6 18a2 2 0 100-4 2 2 0 000 4zm10 0a2 2 0 100-4 2 2 0 000 4z" /></svg>
-            </div>
+            <div><p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">3 Wheels</p><p className="text-2xl font-black text-slate-900 dark:text-white">{wheels3}</p></div>
+            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 10h12l2-4H6l-2 4zm0 0v6a2 2 0 002 2h8a2 2 0 002-2v-6M6 18a2 2 0 100-4 2 2 0 000 4zm10 0a2 2 0 100-4 2 2 0 000 4z" /></svg></div>
           </div>
           <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
-            <div>
-               <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">2 Wheels</p>
-               <p className="text-2xl font-black text-slate-900 dark:text-white">{wheels2}</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
-               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 18a4 4 0 100-8 4 4 0 000 8zm8 0a4 4 0 100-8 4 4 0 000 8zm-9-4h2a2 2 0 012 2v2m4-2h-2m-4-6h6l2 4h-8z" /></svg>
-            </div>
+            <div><p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">2 Wheels</p><p className="text-2xl font-black text-slate-900 dark:text-white">{wheels2}</p></div>
+            <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 18a4 4 0 100-8 4 4 0 000 8zm8 0a4 4 0 100-8 4 4 0 000 8zm-9-4h2a2 2 0 012 2v2m4-2h-2m-4-6h6l2 4h-8z" /></svg></div>
           </div>
         </div>
       )}
