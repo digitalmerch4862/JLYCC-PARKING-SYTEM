@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { LogEntry, User, Vehicle } from '../types';
 import { MAX_CAPACITY, maskPhone } from '../services/storage';
@@ -5,14 +6,7 @@ import { supabase } from '../services/supabase';
 import { OfflineService, QueueItem } from '../services/offline';
 import { useClientOnly, safeDateFormat, safeDateDay } from '../utils/safety';
 import TrainingView from './TrainingView';
-
-// --- Global Type Definition for Speech Recognition ---
-declare global {
-  interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
-  }
-}
+import { GoogleGenAI } from "@google/genai";
 
 interface DashboardProps {
   user: User;
@@ -42,14 +36,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   const [isQueueModalOpen, setIsQueueModalOpen] = useState(false);
   const [resolvingQueue, setResolvingQueue] = useState(false);
 
-  // Voice Input State
-  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
-  const [voiceStep, setVoiceStep] = useState<'listening' | 'processing' | 'verify' | 'action'>('listening');
-  const [recognizedText, setRecognizedText] = useState('');
+  // Scanner State
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scanStep, setScanStep] = useState<'camera' | 'analyzing' | 'verify' | 'action'>('camera');
+  const [scannedPlate, setScannedPlate] = useState('');
   const [suggestedAction, setSuggestedAction] = useState<'in' | 'out' | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
   
-  // Refs
-  const recognitionRef = useRef<any>(null);
+  // Refs for Camera
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const isAdmin = user.roleName === 'Admin';
   const isSuper = user.isSuperAdmin === true;
@@ -183,128 +180,163 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     };
   }, [isMounted]);
 
-  // --- Voice Logic (Revised) ---
+  // --- Manual Scanning Logic ---
 
-  const smartFormatPlate = (text: string) => {
-    // 1. Define Number Mappings
-    const numberMap: { [key: string]: string } = {
-      'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
-      'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9'
-    };
-    
-    // 2. Split phrase into words by space
-    const words = text.toUpperCase().trim().split(/\s+/);
-    
-    const processed = words.map(word => {
-      // If it's a known number word, return the digit
-      if (numberMap[word]) return numberMap[word];
+  const enableTorch = async (stream: MediaStream) => {
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
 
-      // If it's any other word (e.g. "Alpha", "Romeo", "Car"), take ONLY the first letter
-      if (word.length > 0) return word.charAt(0);
-      
-      return '';
-    }).join('');
-
-    // 3. Final cleanup: Remove anything that isn't A-Z or 0-9
-    return processed.replace(/[^A-Z0-9]/g, '');
+    try {
+      // Force flashlight on for better OCR
+      await track.applyConstraints({
+        advanced: [{ torch: true } as any]
+      });
+    } catch (err) {
+      console.log("Torch constraint failed or not supported.");
+    }
   };
 
-  const startListening = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      alert("Voice recognition is not supported in this browser. Please use Chrome or Safari.");
-      return;
-    }
-
-    setIsVoiceOpen(true);
-    setVoiceStep('listening');
-    setRecognizedText('');
+  const startCamera = async () => {
+    setIsScannerOpen(true);
+    setScanStep('camera');
+    setScannedPlate('');
     setSuggestedAction(null);
+    setCapturedImage(null);
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.lang = 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => {
-      console.log('Voice recognition started');
-    };
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      const formatted = smartFormatPlate(transcript);
-      setRecognizedText(formatted);
-      processFoundPlate(formatted);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error('Voice error', event.error);
-      if (event.error === 'no-speech') {
-        alert("No speech detected. Please try again.");
-        closeVoice();
+    try {
+      // Request high resolution for better OCR
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+        } 
+      });
+      
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
       }
-    };
 
-    recognition.onend = () => {
-      if (recognitionRef.current) {
-        recognitionRef.current = null;
-      }
-    };
+      // 1. Enable Flash (Torch) if available
+      setTimeout(() => enableTorch(stream), 500);
 
-    recognitionRef.current = recognition;
-    recognition.start();
-  };
-
-  const stopListening = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+    } catch (err) {
+      console.error("Error accessing camera:", err);
+      alert("Could not access camera. Please check permissions.");
+      setIsScannerOpen(false);
     }
   };
 
-  const closeVoice = () => {
-    stopListening();
-    setIsVoiceOpen(false);
+  const stopCamera = () => {
+    // Stop Stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
   };
 
-  const processFoundPlate = (plate: string) => {
-    // Basic validation
-    if (!plate || plate.length < 2) {
-      setVoiceStep('verify'); // Too short, force manual
-      return;
+  const closeScanner = () => {
+    stopCamera();
+    setIsScannerOpen(false);
+  };
+
+  // Triggered by button click
+  const captureAndAnalyze = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    // 1. Capture Frame
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // 2. Convert to Data
+    const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
+    const base64Data = dataUrl.split(',')[1];
+
+    // 3. Stop Camera & Show Analysis Screen
+    stopCamera();
+    setCapturedImage(dataUrl);
+    setScanStep('analyzing');
+
+    // 4. Send to AI
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // Strict Prompt for No Spacing and filtering slogans
+      const prompt = "Analyze this Philippine license plate. Ignore slogans like 'MATATAG NA REPUBLIKA', 'LTO', region names, or stickers. Return ONLY the main registration characters (uppercase letters and numbers) joined together with NO spaces or dashes (e.g., ABC1234). If the plate is unreadable, return exactly the word UNKNOWN.";
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-latest", // Fast model
+        contents: {
+            parts: [
+                { text: prompt },
+                { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+            ]
+        }
+      });
+      
+      const rawText = response.text || '';
+      // Aggressive Cleanup: Remove anything that isn't A-Z or 0-9
+      const cleanText = rawText.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+      // Proceed with result
+      processFoundPlate(cleanText, dataUrl);
+
+    } catch (err) {
+      console.warn("Scan error:", err);
+      // Fallback to empty allow manual entry
+      processFoundPlate("", dataUrl); 
     }
+  };
 
-    // Check Logic
-    const isActive = activeLogs.some(log => log.plateNumber === plate);
-    const isRegistered = vehicles.some(v => v.plateNumber === plate);
+  // Logic to determine if we Check-In, Check-Out, or Ask
+  const processFoundPlate = (plate: string, image: string) => {
+    // Set State
+    const finalPlate = plate === 'UNKNOWN' ? '' : plate;
+    setScannedPlate(finalPlate);
+    
+    // Smart Routing Logic
+    const isActive = activeLogs.some(log => log.plateNumber === finalPlate);
+    const isRegistered = vehicles.some(v => v.plateNumber === finalPlate);
 
-    if (isActive) {
-      setSuggestedAction('out');
-      setVoiceStep('action');
-    } else if (isRegistered) {
-      setSuggestedAction('in');
-      setVoiceStep('action');
+    if (finalPlate && isActive) {
+        // Auto-Check Out Logic
+        setSuggestedAction('out');
+        setScanStep('action'); 
+    } else if (finalPlate && isRegistered) {
+        // Auto-Check In Logic
+        setSuggestedAction('in');
+        setScanStep('action'); 
     } else {
-      // Unknown -> Verify manually
-      setVoiceStep('verify');
+        // Unknown or empty -> Manual Verify
+        setSuggestedAction(null);
+        setScanStep('verify');
     }
   };
 
-  const handleVoiceAction = async (type: 'in' | 'out') => {
-    const plate = recognizedText;
+  const handleScanAction = async (type: 'in' | 'out') => {
+    const plate = scannedPlate.toUpperCase();
+    if (!plate) {
+        alert("Please enter a valid plate number.");
+        return;
+    }
     
     if (type === 'out') {
       const log = activeLogs.find(l => l.plateNumber === plate);
       if (log) {
         await handleCheckOut(log.id);
-        closeVoice();
+        closeScanner();
       } else {
-        alert(`Vehicle ${plate} not found in active logs.`);
+        alert(`Vehicle ${plate} is not currently checked in.`);
       }
     } else {
-      // Check In
+      // Check In Logic
       if (activeLogs.some(l => l.plateNumber === plate)) {
         alert(`Vehicle ${plate} is already checked in.`);
         return;
@@ -313,8 +345,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       const registeredVehicle = vehicles.find(v => v.plateNumber === plate);
       
       if (!registeredVehicle) {
-        alert(`Vehicle ${plate} not found in registry. Use Manual Check-In.`);
-        setVoiceStep('verify');
+        alert(`Vehicle ${plate} not found in registry. Use the manual form to register guests.`);
         return;
       }
 
@@ -342,14 +373,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
           };
           await OfflineService.checkIn(logPayload);
         }
-        closeVoice();
+        closeScanner();
       } catch (err) {
         alert("Error saving check-in.");
       }
     }
   };
 
-  // --- Standard Check Out/Queue Logic ---
+  // --- Standard Check Out/Queue Logic (Unchanged) ---
   const handleCheckOut = async (logId: string) => {
     setActiveLogs(prev => prev.filter(log => log.id !== logId));
     try {
@@ -454,6 +485,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   return (
     <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-500 relative">
       
+      <style>{`
+        @keyframes scan {
+          0% { top: 0%; opacity: 0; }
+          50% { top: 100%; opacity: 1; }
+          100% { top: 0%; opacity: 0; }
+        }
+        .animate-scan {
+          animation: scan 3s linear infinite;
+        }
+      `}</style>
+
       {errorNote && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-md bg-slate-900 text-white p-6 rounded-[2rem] shadow-2xl border-4 border-blue-600 animate-in slide-in-from-top-10 duration-300">
           <div className="flex items-start gap-4">
@@ -463,91 +505,109 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         </div>
       )}
 
-      {/* --- Voice Input Modal --- */}
-      {isVoiceOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex flex-col items-center justify-center p-4">
-           {/* Close Button */}
-           <button onClick={closeVoice} className="absolute top-6 right-6 p-3 bg-white/10 text-white rounded-full hover:bg-white/20 z-50">
-             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-           </button>
+      {/* --- QR Style Scanner Modal --- */}
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center">
+          <div className="relative w-full h-full flex flex-col">
+             
+             {/* Scanner Header */}
+             <div className="absolute top-0 left-0 right-0 z-20 p-6 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent">
+               <div>
+                 <h3 className="text-white font-black text-xl tracking-tight shadow-sm">AI Scanner</h3>
+                 <p className="text-white/70 text-xs font-bold uppercase tracking-widest">
+                    {scanStep === 'camera' ? 'Manual Capture' : 'Processing...'}
+                 </p>
+               </div>
+               <button onClick={closeScanner} className="p-3 bg-white/10 backdrop-blur-md text-white rounded-full hover:bg-white/20">
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+               </button>
+             </div>
 
-           <div className="w-full max-w-md flex flex-col items-center">
-              
-              {voiceStep === 'listening' && (
-                <div className="flex flex-col items-center space-y-8 animate-in fade-in zoom-in duration-300">
-                   <h3 className="text-white text-2xl font-black tracking-tight">Listening...</h3>
-                   <div className="relative">
-                      {/* Pulsing Rings */}
-                      <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-20 animate-[ping_1.5s_ease-in-out_infinite]"></span>
-                      <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-10 animate-[ping_2s_ease-in-out_infinite] delay-150"></span>
-                      
-                      {/* Main Mic Icon */}
-                      <div className="relative w-32 h-32 bg-gradient-to-br from-red-500 to-red-600 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(239,68,68,0.5)]">
-                         <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
-                           <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                           <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                         </svg>
-                      </div>
-                   </div>
-                   <p className="text-slate-400 text-sm font-medium">Say Phonetic Plate (e.g. "Alpha Bravo One")</p>
-                </div>
-              )}
-
-              {(voiceStep === 'verify' || voiceStep === 'action') && (
-                 <div className="w-full bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl space-y-6 animate-in slide-in-from-bottom-10 duration-300">
-                    <div className="text-center space-y-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Plate Detected</label>
-                       <input 
-                         type="text" 
-                         value={recognizedText}
-                         onChange={(e) => {
-                             const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                             setRecognizedText(val);
-                             // If user manually changes text, re-eval logic roughly or just let them confirm manual entry
-                             if(val.length > 2) setSuggestedAction(null); // Reset suggestion on manual edit
-                         }}
-                         className="w-full bg-transparent text-5xl font-black text-white text-center outline-none border-b-2 border-slate-700 focus:border-blue-500 py-4 uppercase tracking-wider"
-                         autoFocus
-                       />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 pt-4">
-                       {voiceStep === 'verify' ? (
-                         <>
-                           <button onClick={startListening} className="py-4 bg-slate-800 text-slate-400 font-bold rounded-2xl hover:bg-slate-700">Retry</button>
-                           <button onClick={onAction} className="py-4 bg-white text-slate-900 font-black rounded-2xl hover:bg-slate-200">Manual Form</button>
-                         </>
-                       ) : (
-                          <>
-                             {suggestedAction === 'in' ? (
-                               <button 
-                                 onClick={() => handleVoiceAction('in')}
-                                 className="col-span-2 py-5 bg-blue-600 text-white text-xl font-black rounded-2xl hover:bg-blue-700 shadow-xl shadow-blue-900/40 uppercase tracking-wide"
-                               >
-                                 Confirm Check In
-                               </button>
-                             ) : (
-                               <button 
-                                 onClick={() => handleVoiceAction('out')}
-                                 className="col-span-2 py-5 bg-emerald-600 text-white text-xl font-black rounded-2xl hover:bg-emerald-700 shadow-xl shadow-emerald-900/40 uppercase tracking-wide"
-                               >
-                                 Confirm Check Out
-                               </button>
-                             )}
-                          </>
-                       )}
+             {/* Main Viewport */}
+             <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+                {scanStep === 'camera' ? (
+                  <>
+                    <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
+                    <canvas ref={canvasRef} className="hidden" />
+                    
+                    {/* Viewfinder UI */}
+                    <div className="relative w-[80%] max-w-sm aspect-square border-2 border-white/30 rounded-3xl overflow-hidden shadow-[0_0_9999px_rgba(0,0,0,0.5)] pointer-events-none">
+                       {/* Corner Markers */}
+                       <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-blue-500 rounded-tl-xl"></div>
+                       <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-blue-500 rounded-tr-xl"></div>
+                       <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-blue-500 rounded-bl-xl"></div>
+                       <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-blue-500 rounded-br-xl"></div>
+                       
+                       {/* Laser Scan Line (Visual only) */}
+                       <div className="absolute left-0 right-0 h-1 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-scan opacity-50"></div>
                     </div>
                     
-                    {/* Fallback actions if auto-detect was wrong or user edited */}
-                    {!suggestedAction && (
-                       <div className="grid grid-cols-2 gap-4 mt-2">
-                          <button onClick={() => handleVoiceAction('in')} className="py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-blue-600">Force In</button>
-                          <button onClick={() => handleVoiceAction('out')} className="py-3 bg-slate-800 text-white font-bold rounded-xl hover:bg-emerald-600">Force Out</button>
+                    {/* Capture Button */}
+                    <div className="absolute bottom-10 left-0 right-0 flex justify-center z-50">
+                       <button 
+                         onClick={captureAndAnalyze}
+                         className="w-20 h-20 rounded-full bg-white border-4 border-slate-300 flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.5)] active:scale-90 transition-all hover:bg-slate-200"
+                         title="Capture Plate"
+                       >
+                          <div className="w-16 h-16 rounded-full bg-white border-2 border-black"></div>
+                       </button>
+                    </div>
+                  </>
+                ) : scanStep === 'analyzing' ? (
+                   <div className="flex flex-col items-center justify-center space-y-6">
+                      <div className="w-20 h-20 border-8 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                      <p className="text-white font-black text-xl uppercase tracking-widest animate-pulse">Reading Plate...</p>
+                   </div>
+                ) : (
+                  // Verification / Action Screen
+                  <div className="w-full max-w-md p-6 space-y-6 bg-slate-900 m-4 rounded-[2.5rem] border border-slate-800 shadow-2xl relative z-30">
+                     {capturedImage && (
+                       <div className="w-full h-40 rounded-3xl overflow-hidden bg-black border border-slate-700 relative">
+                         <img src={capturedImage} alt="Scanned" className="w-full h-full object-contain" />
+                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-center pb-4">
+                            <span className="text-white/80 text-[10px] font-black uppercase tracking-widest">Captured Frame</span>
+                         </div>
                        </div>
-                    )}
-                 </div>
-              )}
-           </div>
+                     )}
+
+                     <div className="text-center space-y-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Detected Plate</label>
+                        <input 
+                          type="text" 
+                          value={scannedPlate}
+                          onChange={(e) => setScannedPlate(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                          className="w-full bg-transparent text-4xl font-black text-white text-center outline-none border-b-2 border-slate-700 focus:border-blue-500 py-2 uppercase tracking-wider"
+                        />
+                     </div>
+
+                     <div className="grid grid-cols-2 gap-4 pt-2">
+                        {scanStep === 'verify' ? (
+                           <>
+                             <button onClick={startCamera} className="py-4 bg-slate-800 text-slate-400 font-bold rounded-2xl hover:bg-slate-700">Retake</button>
+                             <button onClick={() => setScanStep('action')} className="py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-900/20">Confirm</button>
+                           </>
+                        ) : (
+                           <>
+                             <button 
+                               onClick={() => handleScanAction('in')} 
+                               className={`py-5 font-black rounded-2xl text-lg uppercase transition-all ${suggestedAction === 'in' ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/30 scale-105' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                             >
+                               Check In
+                             </button>
+                             <button 
+                               onClick={() => handleScanAction('out')} 
+                               className={`py-5 font-black rounded-2xl text-lg uppercase transition-all ${suggestedAction === 'out' ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/30 scale-105' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                             >
+                               Check Out
+                             </button>
+                           </>
+                        )}
+                     </div>
+                     <button onClick={startCamera} className="w-full py-3 text-slate-500 text-xs font-bold uppercase tracking-widest hover:text-white">Scan Again</button>
+                  </div>
+                )}
+             </div>
+          </div>
         </div>
       )}
 
@@ -608,17 +668,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         </div>
         {isAdmin && (
           <div className="flex gap-2 w-full sm:w-auto">
-             {/* Voice Input Button */}
              <button 
-                onClick={startListening}
-                className="flex items-center justify-center px-6 py-4 bg-slate-900 dark:bg-slate-800 text-white rounded-[1.25rem] hover:bg-red-600 transition-all active:scale-95 shadow-lg shadow-slate-900/20 group"
-                title="Voice Input"
+                onClick={startCamera}
+                className="flex items-center justify-center px-4 py-4 bg-slate-900 dark:bg-slate-800 text-white rounded-[1.25rem] hover:bg-slate-700 transition-all active:scale-95 shadow-lg shadow-slate-900/20"
+                title="Open Scanner"
              >
-                <svg className="w-6 h-6 group-hover:animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
              </button>
-             
              <button 
                 onClick={onAction}
                 className="flex-1 sm:flex-none inline-flex items-center justify-center px-8 py-4 bg-blue-600 text-white font-black rounded-[1.25rem] hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 dark:shadow-blue-900/20 active:scale-95"
@@ -692,7 +748,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                <div className="relative z-10 flex flex-col h-full">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm">
-                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                     </div>
                     <p className="text-blue-100 text-xs font-black uppercase tracking-widest">Live Occupancy</p>
                   </div>
