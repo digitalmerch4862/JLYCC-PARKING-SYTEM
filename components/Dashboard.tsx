@@ -1,10 +1,12 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { LogEntry, User, Vehicle } from '../types';
-import { StorageService, maskPhone, MAX_CAPACITY } from '../services/storage';
+import { MAX_CAPACITY, maskPhone } from '../services/storage';
 import { supabase } from '../services/supabase';
+import { OfflineService, QueueItem } from '../services/offline';
 import { useClientOnly, safeDateFormat, safeDateDay } from '../utils/safety';
 import TrainingView from './TrainingView';
+import { GoogleGenAI } from "@google/genai";
 
 interface DashboardProps {
   user: User;
@@ -21,43 +23,57 @@ interface QueueCandidate {
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   const isMounted = useClientOnly();
-  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [activeLogs, setActiveLogs] = useState<LogEntry[]>([]);
   const [streetQueueCount, setStreetQueueCount] = useState(0);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [guestPlate, setGuestPlate] = useState('');
   const [errorNote, setErrorNote] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
 
   // Queue Management State
   const [queueCandidate, setQueueCandidate] = useState<QueueCandidate | null>(null);
   const [isQueueModalOpen, setIsQueueModalOpen] = useState(false);
   const [resolvingQueue, setResolvingQueue] = useState(false);
 
+  // Scanner State
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scanStep, setScanStep] = useState<'camera' | 'verify' | 'action'>('camera');
+  const [scannedPlate, setScannedPlate] = useState('');
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const isAdmin = user.roleName === 'Admin';
   const isSuper = user.isSuperAdmin === true;
   const MAP_URL = "https://maps.app.goo.gl/NXSLHHjoF3P3ByF89";
   const ADMIN_PHONE = "09694887065";
 
+  // Reconnection Manager & Data Fetcher
   const fetchData = async () => {
     try {
-      // Fetch Logs
+      // 1. Fetch "Real" Data from Supabase
       const { data: logsData } = await supabase
         .from('parking_logs')
         .select('*')
+        .is('check_out', null) // Only fetch active logs for dashboard
         .order('check_in', { ascending: false });
 
-      // Fetch Vehicles
       const { data: vehiclesData } = await supabase
         .from('vehicles')
         .select('*');
 
-      // Fetch Street Queue Count (using exact count)
       const { count: queueCount } = await supabase
         .from('street_queue')
         .select('*', { count: 'exact', head: true });
 
-      const mappedLogs = (logsData || []).map((record: any) => ({
+      // 2. Fetch "Local" Offline Queue
+      const offlineQueue = OfflineService.getQueue();
+      
+      // 3. Process Active Logs (Merge Real + Offline Insertions - Offline Deletions)
+      let mergedLogs = (logsData || []).map((record: any) => ({
         id: record.id,
         plateNumber: record.plate_number,
         vehicleModel: record.vehicle_model,
@@ -67,9 +83,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         mobileNumber: record.mobile_number,
         email: record.email,
         checkIn: record.check_in,
-        checkOut: record.check_out,
+        checkOut: null,
         attendantName: record.attendant_name
       }));
+
+      // Add offline check-ins to the list optimistically
+      const offlineCheckIns = offlineQueue
+        .filter(q => q.type === 'CHECK_IN')
+        .map(q => ({
+          id: q.payload.tempId || 'temp-id', // Use temp ID
+          plateNumber: q.payload.plate_number,
+          vehicleModel: q.payload.vehicle_model,
+          vehicleColor: q.payload.vehicle_color,
+          familyName: q.payload.family_name,
+          nickname: q.payload.first_name,
+          mobileNumber: q.payload.mobile_number,
+          email: q.payload.email,
+          checkIn: q.payload.check_in,
+          checkOut: null,
+          attendantName: q.payload.attendant_name
+        }));
+
+      // Identify offline check-outs
+      const offlineCheckOutIds = new Set(
+        offlineQueue
+        .filter(q => q.type === 'CHECK_OUT')
+        .map(q => q.payload.id)
+      );
+
+      // Merge: (Real + OfflineIn) - OfflineOut
+      const finalLogs = [...mergedLogs, ...offlineCheckIns].filter(
+        log => !offlineCheckOutIds.has(log.id)
+      );
 
       // Map vehicles for owner lookup
       const mappedVehicles = (vehiclesData || []).map((record: any) => ({
@@ -83,10 +128,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         email: record.email
       }));
 
-      setLogs(mappedLogs);
-      setActiveLogs(mappedLogs.filter((log: LogEntry) => !log.checkOut));
+      // Adjust Street Queue Count based on offline add/remove
+      const offlineQueueAdds = offlineQueue.filter(q => q.type === 'QUEUE_ADD').length;
+      const offlineQueueRemoves = offlineQueue.filter(q => q.type === 'QUEUE_REMOVE').length;
+      const finalQueueCount = Math.max(0, (queueCount || 0) + offlineQueueAdds - offlineQueueRemoves);
+
+      setActiveLogs(finalLogs);
       setVehicles(mappedVehicles);
-      setStreetQueueCount(queueCount || 0);
+      setStreetQueueCount(finalQueueCount);
 
     } catch (error) {
       console.error("Dashboard fetch error:", error);
@@ -94,17 +143,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   };
 
   useEffect(() => {
-    const initialFetch = async () => {
+    // Initial Setup
+    const init = async () => {
       setLoading(true);
       await fetchData();
       setLoading(false);
+      setIsOnline(navigator.onLine);
     };
 
-    if (isMounted) {
-      initialFetch();
-    }
+    if (isMounted) init();
 
-    // Set up Realtime Subscriptions
+    // Polling & Events
+    const handleOnline = () => {
+      setIsOnline(true);
+      OfflineService.processQueue().then(() => fetchData());
+    };
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Sync Interval (Every 10 seconds)
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        OfflineService.processQueue().then(() => fetchData());
+      }
+    }, 10000);
+
+    // Realtime Subscriptions
     const logsSub = supabase
       .channel('dashboard_logs')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'parking_logs' }, () => fetchData())
@@ -116,34 +182,184 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       .subscribe();
 
     return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      clearInterval(syncInterval);
       supabase.removeChannel(logsSub);
       supabase.removeChannel(queueSub);
     };
   }, [isMounted]);
 
-  const handleCheckOut = async (logId: string) => {
+  // Camera Handlers
+  const startCamera = async () => {
+    setIsScannerOpen(true);
+    setScanStep('camera');
+    setScannedPlate('');
+    setCapturedImage(null);
     try {
-      // 1. Check out the current vehicle
-      const { error } = await supabase
-        .from('parking_logs')
-        .update({ check_out: new Date().toISOString() })
-        .eq('id', logId);
-
-      if (error) throw error;
-
-      // 2. Check if there is a queue
-      await checkForQueue();
-
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
     } catch (err) {
-      console.error("Checkout failed:", err);
-      alert("Failed to check out vehicle.");
+      console.error("Error accessing camera:", err);
+      alert("Could not access camera. Please check permissions.");
+      setIsScannerOpen(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+  };
+
+  const closeScanner = () => {
+    stopCamera();
+    setIsScannerOpen(false);
+    setIsAnalyzing(false);
+  };
+
+  const captureAndAnalyze = async () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+
+    if (!context) return;
+
+    // Set canvas dimensions to match video
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    // Draw video frame to canvas
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Get base64 string
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const base64Data = dataUrl.split(',')[1];
+    setCapturedImage(dataUrl);
+    
+    // Stop camera stream to save battery/resources
+    stopCamera();
+    setScanStep('verify');
+    setIsAnalyzing(true);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const model = ai.getGenerativeModel({ model: "gemini-2.5-flash-latest" });
+      
+      const prompt = "Look at this image. Extract the license plate number visible on the vehicle. Return ONLY the alphanumeric characters of the plate, with no spaces, dashes, or special characters. If no plate is clearly visible, return 'UNKNOWN'. Do not include any other text.";
+      
+      const result = await model.generateContent([
+        prompt,
+        { inlineData: { data: base64Data, mimeType: "image/jpeg" } }
+      ]);
+      
+      const response = await result.response;
+      const text = response.text().trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      
+      setScannedPlate(text === 'UNKNOWN' ? '' : text);
+    } catch (err) {
+      console.error("AI Analysis failed:", err);
+      alert("Could not analyze image. Please try again or type manually.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleScanAction = async (type: 'in' | 'out') => {
+    const plate = scannedPlate.toUpperCase();
+    
+    if (type === 'out') {
+      // Find active log
+      const log = activeLogs.find(l => l.plateNumber === plate);
+      if (log) {
+        await handleCheckOut(log.id);
+        closeScanner();
+      } else {
+        alert(`Vehicle with plate ${plate} is not currently checked in.`);
+      }
+    } else {
+      // Check In
+      // 1. Check if already checked in
+      if (activeLogs.some(l => l.plateNumber === plate)) {
+        alert(`Vehicle ${plate} is already checked in.`);
+        return;
+      }
+
+      // 2. Find in Registry
+      const registeredVehicle = vehicles.find(v => v.plateNumber === plate);
+      
+      if (!registeredVehicle) {
+        alert(`Vehicle ${plate} not found in registry. Please use the standard 'New Check-In' button to register or check in.`);
+        return;
+      }
+
+      // 3. Perform Check In (mimic CheckInView logic)
+      const isFull = (activeLogs.length + (availableSlots > 0 ? 0 : streetQueueCount)) >= MAX_CAPACITY;
+      
+      const basePayload = {
+        plate_number: registeredVehicle.plateNumber,
+        mobile_number: registeredVehicle.mobileNumber,
+        vehicle_model: registeredVehicle.vehicleModel,
+        attendant_name: user.userName,
+      };
+
+      try {
+        if (isFull) {
+          await OfflineService.addToStreetQueue(basePayload);
+          alert(`Parking full! ${plate} added to Street Queue.`);
+        } else {
+           const logPayload = {
+            ...basePayload,
+            tempId: OfflineService.generateTempId(),
+            vehicle_color: registeredVehicle.vehicleColor,
+            family_name: registeredVehicle.familyName,
+            first_name: registeredVehicle.nickname,
+            email: registeredVehicle.email || null,
+            check_in: new Date().toISOString()
+          };
+          await OfflineService.checkIn(logPayload);
+        }
+        closeScanner();
+      } catch (err) {
+        alert("Error saving check-in.");
+      }
+    }
+  };
+
+
+  const handleCheckOut = async (logId: string) => {
+    // OPTIMISTIC UPDATE
+    // 1. Update UI immediately
+    setActiveLogs(prev => prev.filter(log => log.id !== logId));
+
+    // 2. Perform Action via OfflineService
+    try {
+      await OfflineService.checkOut(logId);
+      
+      // 3. Queue Check Logic (Optimistic)
+      // Since we just freed a slot, we simulate checking the queue
+      // In a real offline scenario, we can't reliably fetch the "next" person from DB
+      // unless we cached the queue. For now, we only trigger queue check if online.
+      if (navigator.onLine) {
+         await checkForQueue();
+      }
+    } catch (err) {
+      console.error("Checkout handling error:", err);
     }
   };
 
   const checkForQueue = async () => {
     try {
-      // Fetch the first person in line
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('street_queue')
         .select('*')
         .order('entry_time', { ascending: true })
@@ -167,7 +383,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
     try {
       if (action === 'accept') {
-        // 1. Get full vehicle details for the log
         const ownerDetails = vehicles.find(v => v.plateNumber === queueCandidate.plate_number) || {
           vehicleColor: 'UNKNOWN',
           familyName: 'GUEST',
@@ -175,11 +390,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
           email: null
         };
 
-        // 2. Move to parking_logs
         const logPayload = {
           plate_number: queueCandidate.plate_number,
           mobile_number: queueCandidate.mobile_number,
-          vehicle_model: queueCandidate.vehicle_model, // Wheels
+          vehicle_model: queueCandidate.vehicle_model,
           vehicle_color: ownerDetails.vehicleColor || 'UNKNOWN',
           family_name: ownerDetails.familyName || 'GUEST',
           first_name: ownerDetails.nickname || 'GUEST',
@@ -188,23 +402,38 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
           check_in: new Date().toISOString()
         };
 
-        const { error: insertError } = await supabase.from('parking_logs').insert([logPayload]);
-        if (insertError) throw insertError;
+        // Optimistic UI Update for Queue Accept
+        // 1. Add to Active Logs
+        const newLog: LogEntry = {
+            id: 'temp-q-' + Date.now(),
+            plateNumber: logPayload.plate_number,
+            mobileNumber: logPayload.mobile_number,
+            vehicleModel: logPayload.vehicle_model,
+            vehicleColor: logPayload.vehicle_color,
+            familyName: logPayload.family_name,
+            nickname: logPayload.first_name,
+            email: logPayload.email || undefined,
+            attendantName: logPayload.attendant_name,
+            checkIn: logPayload.check_in,
+            checkOut: null
+        };
+        setActiveLogs(prev => [newLog, ...prev]);
+        setStreetQueueCount(prev => Math.max(0, prev - 1));
 
-        // 3. Remove from queue
-        await supabase.from('street_queue').delete().eq('id', queueCandidate.id);
+        // 2. Perform DB Actions (via Offline Service Logic)
+        await OfflineService.checkIn(logPayload);
+        await OfflineService.removeFromStreetQueue(queueCandidate.id);
         
-        // 4. Close modal (Success)
         setIsQueueModalOpen(false);
         setQueueCandidate(null);
 
       } else {
-        // REJECT / NEXT QUEUE
-        // 1. Remove current candidate from queue (they lost their spot)
-        await supabase.from('street_queue').delete().eq('id', queueCandidate.id);
-
-        // 2. Fetch the next candidate immediately
-        await checkForQueue();
+        // REJECT
+        await OfflineService.removeFromStreetQueue(queueCandidate.id);
+        if (navigator.onLine) await checkForQueue();
+        else {
+             setIsQueueModalOpen(false); // Can't fetch next if offline
+        }
       }
     } catch (err) {
       console.error("Error resolving queue:", err);
@@ -233,13 +462,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   if (!isMounted) return null;
 
   // Metrics Logic
-  const activeCount = activeLogs.length; // Covered Parking
+  const activeCount = activeLogs.length; 
   const availableSlots = Math.max(0, MAX_CAPACITY - activeCount);
-  
-  // Rule: Queue strictly remains 0 if there are empty slots
   const displayQueueCount = availableSlots > 0 ? 0 : streetQueueCount;
-
-  // Rule: Live Occupancy = Covered + Queue
   const totalOccupancy = activeCount + displayQueueCount;
   
   const wheels4 = activeLogs.filter(l => l.vehicleModel === '4 WHEELS').length;
@@ -252,12 +477,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     return 'bg-emerald-50 border-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:border-emerald-900/50 dark:text-emerald-400';
   };
 
-  // Helper for Queue Message
   const getQueueMessageLink = () => {
     if (!queueCandidate) return '#';
     const owner = vehicles.find(v => v.plateNumber === queueCandidate.plate_number);
     const nickname = owner ? owner.nickname : 'Guest';
-    
     const message = `Hi ${nickname}, this is Berna (Property Manager, JLYCC). Vacant parking slot available for ${queueCandidate.plate_number}. Reply YES to claim. If no reply in 1-2 mins, slot will be given to next in queue. Please ask Kuya Guard to assist you. Thanks!`;
     return `sms:${queueCandidate.mobile_number}?body=${encodeURIComponent(message)}`;
   };
@@ -288,21 +511,108 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         </div>
       )}
 
+      {/* Camera / Scanner Modal */}
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-[2.5rem] overflow-hidden shadow-2xl animate-in zoom-in-95 relative flex flex-col h-auto max-h-[90vh]">
+             
+             {/* Header */}
+             <div className="p-6 flex items-center justify-between border-b border-slate-800 shrink-0">
+               <h3 className="text-white font-black text-xl tracking-tight">
+                 {scanStep === 'camera' ? 'Scan License Plate' : scanStep === 'verify' ? 'Confirm Scan' : 'Select Action'}
+               </h3>
+               <button onClick={closeScanner} className="p-2 bg-slate-800 text-slate-400 rounded-full hover:text-white">
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+               </button>
+             </div>
+
+             {/* Content */}
+             <div className="relative flex-1 overflow-y-auto bg-black">
+                {scanStep === 'camera' && (
+                  <div className="relative w-full h-full min-h-[400px] flex items-center justify-center bg-black">
+                    <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
+                    <canvas ref={canvasRef} className="hidden" />
+                    <div className="absolute inset-0 border-[3px] border-blue-500/50 m-12 rounded-3xl pointer-events-none flex items-center justify-center">
+                       <p className="text-blue-200/50 text-xs font-black uppercase tracking-widest bg-black/50 px-3 py-1 rounded-full">Align Plate Here</p>
+                    </div>
+                  </div>
+                )}
+
+                {scanStep === 'verify' && (
+                  <div className="p-8 space-y-6 bg-slate-900">
+                    {capturedImage && (
+                      <div className="w-full h-48 rounded-3xl overflow-hidden border border-slate-700 bg-black">
+                        <img src={capturedImage} alt="Captured" className="w-full h-full object-contain" />
+                      </div>
+                    )}
+                    
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Detected Plate</label>
+                       {isAnalyzing ? (
+                         <div className="w-full h-14 bg-slate-800 rounded-2xl animate-pulse flex items-center px-4">
+                            <span className="text-slate-500 text-sm font-bold">Analyzing image...</span>
+                         </div>
+                       ) : (
+                         <input 
+                           type="text" 
+                           value={scannedPlate}
+                           onChange={(e) => setScannedPlate(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                           className="w-full px-5 py-4 bg-slate-800 border-2 border-slate-700 rounded-2xl outline-none focus:border-blue-500 text-2xl font-black text-white uppercase text-center tracking-wider"
+                           placeholder="UNKNOWN"
+                         />
+                       )}
+                    </div>
+                  </div>
+                )}
+             </div>
+
+             {/* Footer Actions */}
+             <div className="p-6 border-t border-slate-800 bg-slate-900 shrink-0">
+               {scanStep === 'camera' && (
+                 <button onClick={captureAndAnalyze} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl text-lg hover:bg-blue-700 active:scale-95 transition-all shadow-xl shadow-blue-900/20">
+                   Capture Photo
+                 </button>
+               )}
+
+               {scanStep === 'verify' && !isAnalyzing && (
+                 <div className="flex gap-4">
+                   <button onClick={startCamera} className="flex-1 py-4 bg-slate-800 text-slate-300 font-bold rounded-2xl hover:bg-slate-700">Retake</button>
+                   <button 
+                    onClick={() => setScanStep('action')} 
+                    disabled={!scannedPlate}
+                    className="flex-1 py-4 bg-emerald-600 text-white font-black rounded-2xl hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-emerald-900/20"
+                   >
+                     Confirm
+                   </button>
+                 </div>
+               )}
+
+               {scanStep === 'action' && (
+                 <div className="grid grid-cols-2 gap-4">
+                    <button onClick={() => handleScanAction('in')} className="py-6 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 active:scale-95 transition-all text-xl uppercase shadow-lg shadow-blue-900/20">
+                       Check In
+                    </button>
+                    <button onClick={() => handleScanAction('out')} className="py-6 bg-slate-800 text-emerald-400 font-black rounded-2xl hover:bg-slate-700 active:scale-95 transition-all text-xl uppercase border-2 border-emerald-500/20">
+                       Check Out
+                    </button>
+                 </div>
+               )}
+             </div>
+
+          </div>
+        </div>
+      )}
+
       {/* Queue Resolution Modal */}
       {isQueueModalOpen && queueCandidate && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-300 relative overflow-hidden">
-              
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
-
               <div className="text-center space-y-2 mb-8 mt-2">
-                 <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full text-[11px] font-black uppercase tracking-widest mb-2 shadow-sm">
-                   Next in Line
-                 </div>
+                 <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-full text-[11px] font-black uppercase tracking-widest mb-2 shadow-sm">Next in Line</div>
                  <h3 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Slot Available!</h3>
                  <p className="text-slate-500 dark:text-slate-400 font-medium">Notify the next driver in the queue.</p>
               </div>
-
               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-3xl p-6 mb-8 border border-slate-100 dark:border-slate-800">
                  <div className="flex justify-between items-start mb-4">
                     <div>
@@ -314,68 +624,63 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                        <p className="text-lg font-bold text-slate-700 dark:text-slate-300">{new Date(queueCandidate.entry_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                     </div>
                  </div>
-                 
                  <div className="flex gap-3">
                     <a href={getQueueMessageLink()} className="flex-1 flex items-center justify-center gap-2 py-3 bg-green-500 text-white rounded-2xl font-black text-sm uppercase hover:bg-green-600 transition-all shadow-lg shadow-green-500/20 active:scale-95">
-                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                       SMS Invite
+                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg> SMS Invite
                     </a>
                     <a href={`tel:${queueCandidate.mobile_number}`} className="flex-1 flex items-center justify-center gap-2 py-3 bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-white rounded-2xl font-black text-sm uppercase hover:bg-slate-300 dark:hover:bg-slate-600 transition-all active:scale-95">
-                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                       Call
+                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg> Call
                     </a>
                  </div>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
-                 <button 
-                   onClick={() => handleQueueDecision('reject')}
-                   disabled={resolvingQueue}
-                   className="py-4 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 font-black rounded-2xl hover:bg-red-100 dark:hover:bg-red-900/30 transition-all uppercase text-sm"
-                 >
-                   Reject / Next
-                 </button>
-                 <button 
-                   onClick={() => handleQueueDecision('accept')}
-                   disabled={resolvingQueue}
-                   className="py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-500/20 uppercase text-sm"
-                 >
-                   Claim Spot
-                 </button>
+                 <button onClick={() => handleQueueDecision('reject')} disabled={resolvingQueue} className="py-4 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 font-black rounded-2xl hover:bg-red-100 dark:hover:bg-red-900/30 transition-all uppercase text-sm">Reject / Next</button>
+                 <button onClick={() => handleQueueDecision('accept')} disabled={resolvingQueue} className="py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-500/20 uppercase text-sm">Claim Spot</button>
               </div>
-              
-              <button 
-                onClick={() => setIsQueueModalOpen(false)} 
-                className="w-full mt-4 py-2 text-slate-400 text-xs font-bold uppercase tracking-widest hover:text-slate-600 dark:hover:text-slate-300"
-              >
-                Close & Ignore
-              </button>
+              <button onClick={() => setIsQueueModalOpen(false)} className="w-full mt-4 py-2 text-slate-400 text-xs font-bold uppercase tracking-widest hover:text-slate-600 dark:hover:text-slate-300">Close & Ignore</button>
            </div>
         </div>
       )}
 
       <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div>
-          <h2 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-            {isAdmin ? 'System Overview' : 'Parking Availability'}
-          </h2>
+          <div className="flex items-center gap-3">
+             <h2 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
+               {isAdmin ? 'System Overview' : 'Parking Availability'}
+             </h2>
+             {/* Status Indicator */}
+             <div className="relative flex items-center justify-center w-5 h-5">
+               <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping ${isOnline ? 'bg-emerald-400' : 'bg-orange-400'}`}></span>
+               <span className={`relative inline-flex rounded-full h-3 w-3 ${isOnline ? 'bg-emerald-500' : 'bg-orange-500'}`}></span>
+             </div>
+          </div>
           <p className="text-slate-500 dark:text-slate-400 mt-1 font-medium">
             {isSuper ? 'Master Console: Complete system authority.' : isAdmin ? 'Staff Dashboard: Manage arrivals and records.' : 'Real-time parking status for JLYCC.'}
           </p>
         </div>
         {isAdmin && (
-          <button 
-            onClick={onAction}
-            className="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 bg-blue-600 text-white font-black rounded-[1.25rem] hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 dark:shadow-blue-900/20 active:scale-95"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-            </svg>
-            New Check-In
-          </button>
+          <div className="flex gap-2 w-full sm:w-auto">
+             <button 
+                onClick={startCamera}
+                className="flex items-center justify-center px-4 py-4 bg-slate-900 dark:bg-slate-800 text-white rounded-[1.25rem] hover:bg-slate-700 transition-all active:scale-95"
+                title="Scan License Plate"
+             >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+             </button>
+             <button 
+                onClick={onAction}
+                className="flex-1 sm:flex-none inline-flex items-center justify-center px-8 py-4 bg-blue-600 text-white font-black rounded-[1.25rem] hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 dark:shadow-blue-900/20 active:scale-95"
+             >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                </svg>
+                New Check-In
+             </button>
+          </div>
         )}
       </header>
 
+      {/* Stats Cards ... (Keep existing layout) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
         <div className="bg-white dark:bg-slate-900 p-10 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col items-center justify-center text-center">
           <div className="space-y-6 w-full max-w-[200px]">
@@ -396,8 +701,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                <div className="space-y-3">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Your Plate Number</label>
                   <input 
-                    type="text" value={guestPlate} onChange={(e) => setGuestPlate(e.target.value.toUpperCase())}
-                    placeholder="Enter Plate to Verify Status"
+                    type="text" 
+                    value={guestPlate} 
+                    onChange={(e) => setGuestPlate(e.target.value.replace(/,/g, '').toUpperCase())}
+                    placeholder="Ex: ABC123"
                     className="w-full px-5 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl outline-none focus:border-blue-500 transition-all font-bold text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-slate-600 uppercase"
                   />
                </div>
@@ -430,7 +737,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
             
             <div className="bg-blue-600 p-8 rounded-[2rem] shadow-xl shadow-blue-500/20 flex flex-col text-left flex-1 relative overflow-hidden group min-h-[360px]">
                <div className="absolute -right-6 -top-6 bg-white/10 w-32 h-32 rounded-full blur-2xl group-hover:bg-white/20 transition-all duration-500"></div>
-               
                <div className="relative z-10 flex flex-col h-full">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm">
@@ -438,12 +744,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                     </div>
                     <p className="text-blue-100 text-xs font-black uppercase tracking-widest">Live Occupancy</p>
                   </div>
-                  
                   <div className="flex items-baseline gap-2 mb-auto">
                      <p className="text-white text-7xl font-black tracking-tighter">{totalOccupancy}</p>
                      <p className="text-blue-200 text-xl font-bold">Total Vehicles</p>
                   </div>
-
                   <div className="space-y-3 mt-8 w-full">
                      <div className="flex justify-between items-center h-20 px-8 bg-white/20 rounded-[1.5rem] border border-white/10 backdrop-blur-md shadow-lg shadow-blue-900/10">
                         <span className="text-blue-50 text-sm font-black uppercase tracking-widest">Covered</span>
@@ -471,7 +775,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10h14a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2z M7 10V7a3 3 0 013-3h4a3 3 0 013 3v3 M7 16a2 2 0 11-4 0 2 2 0 014 0zm14 0a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
             </div>
           </div>
-          
           <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
             <div>
                <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">3 Wheels</p>
@@ -481,7 +784,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 10h12l2-4H6l-2 4zm0 0v6a2 2 0 002 2h8a2 2 0 002-2v-6M6 18a2 2 0 100-4 2 2 0 000 4zm10 0a2 2 0 100-4 2 2 0 000 4z" /></svg>
             </div>
           </div>
-
           <div className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex items-center justify-between">
             <div>
                <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">2 Wheels</p>

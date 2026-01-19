@@ -207,6 +207,9 @@ const TrainingView: React.FC<TrainingViewProps> = ({ onQuit }) => {
     }
   };
 
+  // Logic: Reveal Hall of Fame only if someone has >= 96%
+  const showHallOfFame = leaderboard.some(entry => entry.percentage >= 96);
+
   const rawHallOfFame = leaderboard.filter(e => e.percentage >= 90);
   const hallOfFame = [...rawHallOfFame];
   if (!hallOfFame.find(e => e.userName.toLowerCase() === 'rad')) {
@@ -232,7 +235,7 @@ const TrainingView: React.FC<TrainingViewProps> = ({ onQuit }) => {
           </p>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+        <div className={`grid grid-cols-1 ${showHallOfFame ? 'lg:grid-cols-2' : ''} gap-10`}>
           <div className="bg-white dark:bg-slate-900 p-10 sm:p-12 rounded-[3.5rem] border border-slate-100 dark:border-slate-800 shadow-2xl space-y-10">
              <div className="space-y-6">
                <h3 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
@@ -244,7 +247,7 @@ const TrainingView: React.FC<TrainingViewProps> = ({ onQuit }) => {
                    { icon: "⚖️", text: "Min 6/10 per wave to continue" },
                    { icon: "⏱️", text: "10 seconds per question" },
                    { icon: "☕", text: "10-second break between waves" },
-                   { icon: "🏆", text: "90%+ total = HALL OF FAME" }
+                   { icon: "🏆", text: "96%+ total = HALL OF FAME" }
                  ].map((item, i) => (
                    <li key={i} className="flex items-start gap-5 group">
                      <span className="text-3xl bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl group-hover:scale-110 transition-transform">{item.icon}</span>
@@ -256,23 +259,25 @@ const TrainingView: React.FC<TrainingViewProps> = ({ onQuit }) => {
              <button onClick={startQuiz} className="w-full py-7 bg-blue-600 text-white font-black text-3xl rounded-[2.5rem] shadow-xl hover:scale-[1.03] transition-all uppercase">START MISSION</button>
           </div>
           
-          <div className="bg-slate-950 rounded-[3.5rem] border border-slate-800 p-10 shadow-2xl space-y-8 h-fit">
-            <h3 className="text-xl font-black text-white uppercase tracking-[0.2em] text-center">🏆 HALL OF FAME (90%+)</h3>
-            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-              {hallOfFame.map((entry, i) => (
-                <div key={i} className={`flex justify-between items-center p-4 rounded-2xl border transition-all hover:scale-[1.02] ${entry.userName.toLowerCase() === 'rad' ? 'bg-amber-500/20 border-amber-500/30' : 'bg-slate-900/50 border-slate-800'}`}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{i === 0 || entry.userName.toLowerCase() === 'rad' ? '🥇' : '⭐'}</span>
-                    <span className="text-white font-black uppercase text-sm tracking-tight">{entry.userName}</span>
+          {showHallOfFame && (
+            <div className="bg-slate-950 rounded-[3.5rem] border border-slate-800 p-10 shadow-2xl space-y-8 h-fit animate-in slide-in-from-right duration-500">
+              <h3 className="text-xl font-black text-white uppercase tracking-[0.2em] text-center">🏆 HALL OF FAME (90%+)</h3>
+              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                {hallOfFame.map((entry, i) => (
+                  <div key={i} className={`flex justify-between items-center p-4 rounded-2xl border transition-all hover:scale-[1.02] ${entry.userName.toLowerCase() === 'rad' ? 'bg-amber-500/20 border-amber-500/30' : 'bg-slate-900/50 border-slate-800'}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl">{i === 0 || entry.userName.toLowerCase() === 'rad' ? '🥇' : '⭐'}</span>
+                      <span className="text-white font-black uppercase text-sm tracking-tight">{entry.userName}</span>
+                    </div>
+                    <span className={`font-black text-xl ${entry.userName.toLowerCase() === 'rad' ? 'text-amber-500' : 'text-blue-400'}`}>{entry.percentage}%</span>
                   </div>
-                  <span className={`font-black text-xl ${entry.userName.toLowerCase() === 'rad' ? 'text-amber-500' : 'text-blue-400'}`}>{entry.percentage}%</span>
-                </div>
-              ))}
-              {hallOfFame.length === 0 && (
-                <p className="text-slate-600 text-center font-bold text-sm italic">No legends yet. Score 90% to enter.</p>
-              )}
+                ))}
+                {hallOfFame.length === 0 && (
+                  <p className="text-slate-600 text-center font-bold text-sm italic">No legends yet. Score 90% to enter.</p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     );

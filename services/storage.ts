@@ -83,6 +83,17 @@ export const StorageService = {
     return error ? [] : (data || []).map(mapVehicleFromDB);
   },
 
+  findVehicleByPlate: async (plate: string): Promise<Vehicle | null> => {
+    const { data, error } = await supabase
+      .from('vehicles')
+      .select('*')
+      .ilike('plate_number', plate.trim())
+      .maybeSingle();
+    
+    if (error || !data) return null;
+    return mapVehicleFromDB(data);
+  },
+
   getGroupedVehicles: async (): Promise<VehicleGroup[]> => {
     const all = await StorageService.getDatabase();
     const groups: Record<string, VehicleGroup> = {};

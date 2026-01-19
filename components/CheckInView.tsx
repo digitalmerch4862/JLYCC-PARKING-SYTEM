@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User } from '../types';
 import { StorageService, maskPhone, VehicleGroup, MAX_CAPACITY } from '../services/storage';
 import { supabase } from '../services/supabase';
+import { OfflineService } from '../services/offline';
 
 interface CheckInViewProps {
   user: User;
@@ -26,7 +27,7 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
         const vehiclesData = await StorageService.getGroupedVehicles();
         setGroups(vehiclesData);
         
-        // Fetch active logs (both parking and queue) to prevent duplicates
+        // Fetch active logs (Supabase)
         const { data: logsData } = await supabase
           .from('parking_logs')
           .select('plate_number')
@@ -35,19 +36,28 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
         const { data: queueData } = await supabase
           .from('street_queue')
           .select('plate_number');
+          
+        // Fetch queued actions (Offline)
+        const offlineQueue = OfflineService.getQueue();
+        const queuedCheckIns = offlineQueue.filter(q => q.type === 'CHECK_IN').map(q => q.payload.plate_number.toUpperCase());
+        const queuedQueueAdds = offlineQueue.filter(q => q.type === 'QUEUE_ADD').map(q => q.payload.plate_number.toUpperCase());
+        const queuedCheckOuts = new Set(offlineQueue.filter(q => q.type === 'CHECK_OUT').map(q => q.payload.id)); // Can't easily map to plate here without lookup, but dashboard handles main sync.
 
         let activeSet = new Set<string>();
-        let occupancy = 0;
-
-        if (logsData) {
-           occupancy = logsData.length;
-           logsData.forEach(l => activeSet.add(l.plate_number.toUpperCase()));
-        }
-        if (queueData) {
-           queueData.forEach(q => activeSet.add(q.plate_number.toUpperCase()));
-        }
         
-        setCurrentOccupancy(occupancy);
+        // Add Supabase Data
+        if (logsData) logsData.forEach(l => activeSet.add(l.plate_number.toUpperCase()));
+        if (queueData) queueData.forEach(q => activeSet.add(q.plate_number.toUpperCase()));
+        
+        // Add Offline Data
+        queuedCheckIns.forEach(p => activeSet.add(p));
+        queuedQueueAdds.forEach(p => activeSet.add(p));
+        
+        // We approximate occupancy. 
+        // Note: Removing plates based on Offline CHECK_OUT is harder here without more context, 
+        // but for CheckInView, we mainly care about "Is THIS plate already in?"
+        
+        setCurrentOccupancy(activeSet.size);
         setActivePlates(activeSet);
 
       } catch (err) {
@@ -107,33 +117,33 @@ const CheckInView: React.FC<CheckInViewProps> = ({ user, onComplete }) => {
     const primaryOwner = selectedGroup.owners[0];
     const isFull = currentOccupancy >= MAX_CAPACITY;
     
-    // Strict Payload for Supabase
-    const payload = {
+    // Strict Payload
+    const basePayload = {
       plate_number: selectedGroup.plateNumber.toUpperCase(),
       mobile_number: primaryOwner.mobileNumber,
-      vehicle_model: selectedGroup.vehicleModel.toUpperCase(), // Currently holds wheel count
+      vehicle_model: selectedGroup.vehicleModel.toUpperCase(),
       attendant_name: user.userName,
     };
 
     try {
       if (isFull) {
-        // Insert into street_queue if full
-        const { error } = await supabase.from('street_queue').insert([payload]);
-        if (error) throw error;
-        alert(`Parking full! ${selectedGroup.plateNumber} added to Street Queue.`);
+        // Optimistic Queue Add
+        await OfflineService.addToStreetQueue(basePayload);
+        alert(`Parking full! ${selectedGroup.plateNumber} added to Street Queue (Optimistic).`);
       } else {
-        // Insert into parking_logs if space available
+        // Optimistic Check In
         const logPayload = {
-          ...payload,
+          ...basePayload,
+          tempId: OfflineService.generateTempId(),
           vehicle_color: selectedGroup.vehicleColor.toUpperCase(),
           family_name: primaryOwner.familyName.toUpperCase(),
           first_name: primaryOwner.nickname.toUpperCase(),
           email: primaryOwner.email || null,
           check_in: new Date().toISOString()
         };
-        const { error } = await supabase.from('parking_logs').insert([logPayload]);
-        if (error) throw error;
+        await OfflineService.checkIn(logPayload);
       }
+      // Immediate Return to Dashboard
       onComplete();
     } catch (error) {
       console.error("Failed to add log/queue:", error);

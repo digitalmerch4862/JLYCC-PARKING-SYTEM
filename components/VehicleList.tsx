@@ -20,6 +20,12 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
   const [isCleaning, setIsCleaning] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
+  // Conflict Resolution State
+  const [conflictVehicle, setConflictVehicle] = useState<Vehicle | null>(null);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflictStep, setConflictStep] = useState<'verify' | 'update'>('verify');
+  const [updatedMobile, setUpdatedMobile] = useState('');
+
   const isSuper = user.isSuperAdmin === true;
 
   const [newVehicle, setNewVehicle] = useState<Vehicle>({
@@ -89,6 +95,9 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
       let digits = value.replace(/\D/g, '');
       if (digits.startsWith('9')) digits = '0' + digits;
       finalValue = digits.slice(0, 11);
+    } else if (field === 'plateNumber') {
+      // Remove spaces and uppercase
+      finalValue = value.replace(/\s+/g, '').toUpperCase();
     } else if (field !== 'email' && field !== 'vehicleModel') {
       finalValue = value.toUpperCase();
     }
@@ -97,6 +106,18 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Check for duplicate plate if registering new (not editing)
+    if (!isEditMode) {
+      const existing = vehicles.find(v => v.plateNumber === newVehicle.plateNumber);
+      if (existing) {
+        setConflictVehicle(existing);
+        setConflictStep('verify');
+        setShowConflictModal(true);
+        return;
+      }
+    }
+
     if (!/^09\d{9}$/.test(newVehicle.mobileNumber)) {
       showToast("Mobile number must start with 09 and be 11 digits long.", "error");
       return;
@@ -110,6 +131,41 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
       resetForm();
     } catch (err: any) {
       showToast(`Save failed: ${err.message || "Unknown Error"}`, "error");
+    }
+  };
+
+  const handleConflictResolution = async (action: 'yes' | 'no' | 'save_new') => {
+    if (!conflictVehicle) return;
+
+    if (action === 'yes') {
+        // KEEP OLD NUMBER: Update existing vehicle with new details (except mobile)
+        const merged = { ...newVehicle, id: conflictVehicle.id, mobileNumber: conflictVehicle.mobileNumber };
+        try {
+            await StorageService.saveVehicle(merged);
+            await fetchVehicles();
+            showToast("Vehicle updated. Existing mobile number retained.", "success");
+            setShowConflictModal(false);
+            setShowAddForm(false);
+            resetForm();
+        } catch(e) { showToast("Error updating vehicle.", "error"); }
+    } else if (action === 'no') {
+        setConflictStep('update');
+        setUpdatedMobile('');
+    } else if (action === 'save_new') {
+        // UPDATE NEW NUMBER
+        if (!/^09\d{9}$/.test(updatedMobile)) {
+           showToast("Mobile number must start with 09 and be 11 digits long.", "error");
+           return;
+        }
+        const merged = { ...newVehicle, id: conflictVehicle.id, mobileNumber: updatedMobile };
+        try {
+            await StorageService.saveVehicle(merged);
+            await fetchVehicles();
+            showToast("Vehicle updated with new mobile number.", "success");
+            setShowConflictModal(false);
+            setShowAddForm(false);
+            resetForm();
+        } catch(e) { showToast("Error updating vehicle.", "error"); }
     }
   };
 
@@ -142,6 +198,9 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
   const resetForm = () => {
     setNewVehicle({ plateNumber: '', vehicleModel: '4 WHEELS', vehicleColor: '', familyName: '', nickname: '', mobileNumber: '', email: '' });
     setIsEditMode(false);
+    setConflictVehicle(null);
+    setConflictStep('verify');
+    setUpdatedMobile('');
   };
 
   const startEdit = (vehicle: Vehicle) => {
@@ -168,6 +227,7 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
         </div>
       )}
 
+      {/* Delete Modal */}
       {vehicleToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 w-full max-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100 dark:border-slate-800 text-center">
@@ -176,6 +236,60 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
               <button onClick={() => setVehicleToDelete(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold rounded-2xl">Cancel</button>
               <button onClick={confirmDelete} className="flex-1 py-4 bg-red-600 text-white font-black rounded-2xl hover:bg-red-700">Delete</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Conflict Resolution Modal */}
+      {showConflictModal && conflictVehicle && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200">
+             <div className="text-center space-y-4 mb-8">
+                <div className="w-16 h-16 bg-amber-100 dark:bg-amber-500/20 text-amber-600 rounded-2xl flex items-center justify-center mx-auto text-3xl">
+                   ⚠️
+                </div>
+                <div>
+                   <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Vehicle Already Exists</h3>
+                   <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Plate {conflictVehicle.plateNumber} is already registered.</p>
+                </div>
+             </div>
+             
+             {conflictStep === 'verify' ? (
+               <div className="space-y-6">
+                 <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-3xl text-center space-y-2">
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Registered Mobile</p>
+                    <p className="text-2xl font-black text-slate-900 dark:text-white tracking-wider">
+                       {maskPhone(conflictVehicle.mobileNumber)}
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 font-bold pt-2">Is this number still valid?</p>
+                 </div>
+                 <div className="flex gap-4">
+                   <button onClick={() => handleConflictResolution('no')} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-2xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">No, Update It</button>
+                   <button onClick={() => handleConflictResolution('yes')} className="flex-1 py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20">Yes, Proceed</button>
+                 </div>
+               </div>
+             ) : (
+               <div className="space-y-6 animate-in slide-in-from-right-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">New Mobile Number</label>
+                    <input 
+                      type="password"
+                      placeholder="09XXXXXXXXX"
+                      value={updatedMobile}
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/\D/g, '');
+                        if (val.startsWith('9')) val = '0' + val;
+                        setUpdatedMobile(val.slice(0, 11));
+                      }}
+                      className="w-full p-4 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-900 dark:text-white bg-slate-50 dark:bg-slate-800 outline-none focus:border-blue-500 text-xl font-bold tracking-widest text-center"
+                    />
+                  </div>
+                  <div className="flex gap-4">
+                     <button onClick={() => setConflictStep('verify')} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-2xl">Back</button>
+                     <button onClick={() => handleConflictResolution('save_new')} className="flex-1 py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20">Save & Update</button>
+                  </div>
+               </div>
+             )}
           </div>
         </div>
       )}
@@ -232,7 +346,7 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
                       ) : (
                         <input 
                           required={field !== 'email'} 
-                          type={field === 'email' ? 'email' : 'text'} 
+                          type={field === 'email' ? 'email' : field === 'mobileNumber' ? 'password' : 'text'} 
                           placeholder={field === 'mobileNumber' ? '09XXXXXXXXX' : label.toUpperCase()} 
                           className="w-full p-4 border border-slate-200 dark:border-slate-800 rounded-[1.25rem] text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 focus:ring-1 focus:ring-blue-400 outline-none placeholder:text-slate-300 dark:placeholder:text-slate-700 text-lg font-bold uppercase" 
                           value={(newVehicle as any)[field]} 
@@ -282,3 +396,4 @@ const VehicleList: React.FC<VehicleListProps> = ({ isAdmin, user }) => {
 };
 
 export default VehicleList;
+    
