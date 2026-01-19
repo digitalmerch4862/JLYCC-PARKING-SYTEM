@@ -195,7 +195,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         advanced: [{ torch: true } as any]
       });
     } catch (err) {
-      console.log("Torch not supported on this device/browser");
+      // Torch might not be available or supported on this device
+      console.log("Torch constraint failed or not supported.");
     }
   };
 
@@ -209,6 +210,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     isAnalyzingRef.current = false;
 
     try {
+      // Request high resolution for better OCR
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
             facingMode: 'environment',
@@ -223,7 +225,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         videoRef.current.play();
       }
 
-      // 1. Enable Flash
+      // 1. Enable Flash (Torch)
       setTimeout(() => enableTorch(stream), 500);
 
       // 2. Start Auto-Scan Loop (Every 1.5 seconds)
@@ -271,15 +273,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    
+    // High Quality JPEG
+    const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
     const base64Data = dataUrl.split(',')[1];
 
     isAnalyzingRef.current = true;
-    setIsAnalyzing(true); // Triggers UI "Thinking" state if needed
+    setIsAnalyzing(true); // Triggers UI "Analyzing" animation
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const prompt = "Read the license plate in this image. Return ONLY the alphanumeric characters (e.g., ABC1234). No spaces, no hyphens. If you cannot see a clear plate, return exactly the word UNKNOWN.";
+      // Strict Prompt for No Spacing
+      const prompt = "Read the license plate characters in this image. Return ONLY the uppercase letters and numbers joined together (e.g. ABC1234). Do NOT include spaces, dashes, or special characters. If you cannot see a clear plate, return exactly the word UNKNOWN.";
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-latest", // Fast model
@@ -291,12 +296,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         }
       });
       
-      const text = (response.text || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const rawText = response.text || '';
+      // Aggressive Cleanup: Remove anything that isn't A-Z or 0-9
+      const cleanText = rawText.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
       // VALIDATION: Must be > 2 chars and NOT "UNKNOWN"
-      if (text && text !== 'UNKNOWN' && text.length > 2) {
+      if (cleanText && cleanText !== 'UNKNOWN' && cleanText.length > 2) {
          // Success! Lock it in.
-         foundPlate(text, dataUrl);
+         foundPlate(cleanText, dataUrl);
       } else {
          // Silently fail, let loop continue
          // console.log("Scanning... no plate found");
@@ -319,7 +326,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     setScannedPlate(plate);
     setCapturedImage(image);
     
-    // 3. Determine Logic
+    // 3. Determine Logic (Smart DB Check)
     const isActive = activeLogs.some(log => log.plateNumber === plate);
     const isRegistered = vehicles.some(v => v.plateNumber === plate);
 
@@ -499,12 +506,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       <style>{`
         @keyframes scan {
           0% { top: 0%; opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { top: 100%; opacity: 0; }
+          50% { top: 100%; opacity: 1; }
+          100% { top: 0%; opacity: 0; }
         }
         .animate-scan {
-          animation: scan 2s linear infinite;
+          animation: scan 3s linear infinite;
         }
       `}</style>
 
@@ -527,7 +533,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                <div>
                  <h3 className="text-white font-black text-xl tracking-tight shadow-sm">AI Scanner</h3>
                  <p className="text-white/70 text-xs font-bold uppercase tracking-widest">
-                    {scanStep === 'camera' ? 'Detecting Plate...' : 'Processing...'}
+                    {scanStep === 'camera' ? 'Auto-Detecting Plate...' : 'Processing...'}
                  </p>
                </div>
                <button onClick={closeScanner} className="p-3 bg-white/10 backdrop-blur-md text-white rounded-full hover:bg-white/20">
@@ -555,7 +561,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                        
                        {isAnalyzing && (
                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                           <p className="text-white font-black text-xs uppercase tracking-widest bg-black/50 px-3 py-1 rounded-full animate-pulse">Analyzing...</p>
+                           <p className="text-white font-black text-xs uppercase tracking-widest bg-black/50 px-3 py-1 rounded-full animate-pulse">Scanning...</p>
                          </div>
                        )}
                     </div>
@@ -578,7 +584,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                         <input 
                           type="text" 
                           value={scannedPlate}
-                          onChange={(e) => setScannedPlate(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                          onChange={(e) => setScannedPlate(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
                           className="w-full bg-transparent text-4xl font-black text-white text-center outline-none border-b-2 border-slate-700 focus:border-blue-500 py-2 uppercase tracking-wider"
                         />
                      </div>
