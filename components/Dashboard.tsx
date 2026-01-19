@@ -38,18 +38,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
   // Scanner State
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [scanStep, setScanStep] = useState<'camera' | 'verify' | 'action'>('camera');
+  const [scanStep, setScanStep] = useState<'camera' | 'analyzing' | 'verify' | 'action'>('camera');
   const [scannedPlate, setScannedPlate] = useState('');
   const [suggestedAction, setSuggestedAction] = useState<'in' | 'out' | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   
-  // Refs for Camera & Loop
+  // Refs for Camera
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scanIntervalRef = useRef<any>(null); // To store the loop timer
-  const isAnalyzingRef = useRef(false); // To prevent overlapping AI calls
 
   const isAdmin = user.roleName === 'Admin';
   const isSuper = user.isSuperAdmin === true;
@@ -183,7 +180,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     };
   }, [isMounted]);
 
-  // --- Auto-Scanning Logic ---
+  // --- Manual Scanning Logic ---
 
   const enableTorch = async (stream: MediaStream) => {
     const track = stream.getVideoTracks()[0];
@@ -205,8 +202,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     setScannedPlate('');
     setSuggestedAction(null);
     setCapturedImage(null);
-    setIsAnalyzing(false);
-    isAnalyzingRef.current = false;
 
     try {
       // Request high resolution for better OCR
@@ -224,11 +219,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         videoRef.current.play();
       }
 
-      // 1. Enable Flash (Torch)
+      // 1. Enable Flash (Torch) if available
       setTimeout(() => enableTorch(stream), 500);
-
-      // 2. Start Auto-Scan Loop (Every 1.5 seconds)
-      scanIntervalRef.current = setInterval(performAutoScan, 1500);
 
     } catch (err) {
       console.error("Error accessing camera:", err);
@@ -238,12 +230,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   };
 
   const stopCamera = () => {
-    // Stop Loop
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-
     // Stop Stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -254,13 +240,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
   const closeScanner = () => {
     stopCamera();
     setIsScannerOpen(false);
-    setIsAnalyzing(false);
   };
 
-  // The Silent Loop Function
-  const performAutoScan = async () => {
-    // If already busy with a request, skip this tick
-    if (isAnalyzingRef.current) return;
+  // Triggered by button click
+  const captureAndAnalyze = async () => {
     if (!videoRef.current || !canvasRef.current) return;
 
     const video = videoRef.current;
@@ -268,22 +251,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     const context = canvas.getContext('2d');
     if (!context) return;
 
-    // Capture Frame
+    // 1. Capture Frame
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     
-    // High Quality JPEG
+    // 2. Convert to Data
     const dataUrl = canvas.toDataURL('image/jpeg', 1.0);
     const base64Data = dataUrl.split(',')[1];
 
-    isAnalyzingRef.current = true;
-    setIsAnalyzing(true); // Triggers UI "Analyzing" animation
+    // 3. Stop Camera & Show Analysis Screen
+    stopCamera();
+    setCapturedImage(dataUrl);
+    setScanStep('analyzing');
 
+    // 4. Send to AI
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       // Strict Prompt for No Spacing and filtering slogans
-      const prompt = "Analyze this Philippine license plate. Ignore slogans like 'MATATAG NA REPUBLIKA', 'LTO', region names, or stickers. Return ONLY the main registration characters (uppercase letters and numbers) joined together with NO spaces or dashes (e.g., ABC1234). If the plate is unreadable or too blurry, return exactly the word UNKNOWN.";
+      const prompt = "Analyze this Philippine license plate. Ignore slogans like 'MATATAG NA REPUBLIKA', 'LTO', region names, or stickers. Return ONLY the main registration characters (uppercase letters and numbers) joined together with NO spaces or dashes (e.g., ABC1234). If the plate is unreadable, return exactly the word UNKNOWN.";
       
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash-latest", // Fast model
@@ -299,50 +285,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
       // Aggressive Cleanup: Remove anything that isn't A-Z or 0-9
       const cleanText = rawText.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-      // VALIDATION: Must be > 2 chars and NOT "UNKNOWN"
-      if (cleanText && cleanText !== 'UNKNOWN' && cleanText.length > 2) {
-         // Success! Lock it in.
-         foundPlate(cleanText, dataUrl);
-      } else {
-         // Silently fail, let loop continue
-         // console.log("Scanning... no plate found");
-      }
+      // Proceed with result (even if unknown, let user edit)
+      foundPlate(cleanText, dataUrl);
 
     } catch (err) {
-      console.warn("Silent scan error:", err);
-    } finally {
-      isAnalyzingRef.current = false;
-      setIsAnalyzing(false);
+      console.warn("Scan error:", err);
+      // Fallback to empty allow manual entry
+      foundPlate("", dataUrl); 
     }
   };
 
-  // Called when AI successfully finds a plate
+  // Called when AI returns result
   const foundPlate = (plate: string, image: string) => {
-    // 1. Stop the camera/loop
-    stopCamera();
-
-    // 2. Set State
-    setScannedPlate(plate);
-    setCapturedImage(image);
+    // Set State
+    const finalPlate = plate === 'UNKNOWN' ? '' : plate;
+    setScannedPlate(finalPlate);
     
-    // 3. Determine Logic (Smart DB Check)
-    const isActive = activeLogs.some(log => log.plateNumber === plate);
-    const isRegistered = vehicles.some(v => v.plateNumber === plate);
+    // Determine Logic (Smart DB Check)
+    const isActive = activeLogs.some(log => log.plateNumber === finalPlate);
+    const isRegistered = vehicles.some(v => v.plateNumber === finalPlate);
 
-    if (isActive) {
+    if (finalPlate && isActive) {
         setSuggestedAction('out');
-        setScanStep('action'); // Skip verify, go straight to buttons
-    } else if (isRegistered) {
+        setScanStep('action'); 
+    } else if (finalPlate && isRegistered) {
         setSuggestedAction('in');
-        setScanStep('action'); // Skip verify, go straight to buttons
+        setScanStep('action'); 
     } else {
         setSuggestedAction(null);
-        setScanStep('verify'); // Unknown car, verify text first
+        setScanStep('verify'); // Unknown car or empty result, manual verify
     }
   };
 
   const handleScanAction = async (type: 'in' | 'out') => {
     const plate = scannedPlate.toUpperCase();
+    if (!plate) {
+        alert("Please enter a valid plate number.");
+        return;
+    }
     
     if (type === 'out') {
       const log = activeLogs.find(l => l.plateNumber === plate);
@@ -532,7 +512,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                <div>
                  <h3 className="text-white font-black text-xl tracking-tight shadow-sm">AI Scanner</h3>
                  <p className="text-white/70 text-xs font-bold uppercase tracking-widest">
-                    {scanStep === 'camera' ? 'Auto-Detecting Plate...' : 'Processing...'}
+                    {scanStep === 'camera' ? 'Manual Capture' : 'Processing...'}
                  </p>
                </div>
                <button onClick={closeScanner} className="p-3 bg-white/10 backdrop-blur-md text-white rounded-full hover:bg-white/20">
@@ -547,25 +527,33 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                     <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
                     <canvas ref={canvasRef} className="hidden" />
                     
-                    {/* Scanner Overlay UI */}
-                    <div className="relative w-[80%] max-w-sm aspect-square border-2 border-white/30 rounded-3xl overflow-hidden shadow-[0_0_9999px_rgba(0,0,0,0.5)]">
+                    {/* Viewfinder UI */}
+                    <div className="relative w-[80%] max-w-sm aspect-square border-2 border-white/30 rounded-3xl overflow-hidden shadow-[0_0_9999px_rgba(0,0,0,0.5)] pointer-events-none">
                        {/* Corner Markers */}
                        <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-blue-500 rounded-tl-xl"></div>
                        <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-blue-500 rounded-tr-xl"></div>
                        <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-blue-500 rounded-bl-xl"></div>
                        <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-blue-500 rounded-br-xl"></div>
                        
-                       {/* Laser Scan Line */}
-                       <div className="absolute left-0 right-0 h-1 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-scan"></div>
-                       
-                       {isAnalyzing && (
-                         <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                           <p className="text-white font-black text-xs uppercase tracking-widest bg-black/50 px-3 py-1 rounded-full animate-pulse">Scanning...</p>
-                         </div>
-                       )}
+                       {/* Laser Scan Line (Just for visual, no functionality) */}
+                       <div className="absolute left-0 right-0 h-1 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-scan opacity-50"></div>
                     </div>
-                    <p className="absolute bottom-20 text-white/50 text-xs font-bold uppercase tracking-widest text-center w-full">Point at License Plate</p>
+                    
+                    {/* Capture Button */}
+                    <div className="absolute bottom-10 left-0 right-0 flex justify-center z-50">
+                       <button 
+                         onClick={captureAndAnalyze}
+                         className="w-20 h-20 rounded-full bg-white border-4 border-slate-300 flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.5)] active:scale-90 transition-all"
+                       >
+                          <div className="w-16 h-16 rounded-full bg-white border-2 border-black"></div>
+                       </button>
+                    </div>
                   </>
+                ) : scanStep === 'analyzing' ? (
+                   <div className="flex flex-col items-center justify-center space-y-6">
+                      <div className="w-20 h-20 border-8 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                      <p className="text-white font-black text-xl uppercase tracking-widest animate-pulse">Analyzing Plate...</p>
+                   </div>
                 ) : (
                   // Verification / Action Screen
                   <div className="w-full max-w-md p-6 space-y-6 bg-slate-900 m-4 rounded-[2.5rem] border border-slate-800 shadow-2xl relative z-30">
@@ -756,7 +744,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                <div className="relative z-10 flex flex-col h-full">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm">
-                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                     </div>
                     <p className="text-blue-100 text-xs font-black uppercase tracking-widest">Live Occupancy</p>
                   </div>
