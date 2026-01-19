@@ -253,17 +253,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const model = ai.getGenerativeModel({ model: "gemini-2.5-flash-latest" });
-      
       const prompt = "Look at this image. Extract the license plate number visible on the vehicle. Return ONLY the alphanumeric characters of the plate, with no spaces, dashes, or special characters. If no plate is clearly visible, return 'UNKNOWN'. Do not include any other text.";
       
-      const result = await model.generateContent([
-        prompt,
-        { inlineData: { data: base64Data, mimeType: "image/jpeg" } }
-      ]);
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-latest",
+        contents: {
+            parts: [
+                { text: prompt },
+                { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+            ]
+        }
+      });
       
-      const response = await result.response;
-      const text = response.text().trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      // Access .text property directly
+      const text = (response.text || '').trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
       
       setScannedPlate(text === 'UNKNOWN' ? '' : text);
     } catch (err) {
