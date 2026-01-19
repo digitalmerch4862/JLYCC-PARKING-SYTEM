@@ -1,8 +1,7 @@
-
 import React from 'react';
 
 const PastorView: React.FC = () => {
-  const PASTOR_IMAGE = "https://p16-sign-sg.tiktokcdn.com/tos-alisg-avt-0068/db866b4c52bc48917a1fe9199f7fd583~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=14579&refresh_token=cd4aba37&x-expires=1768816800&x-signature=73gcJ1oKkAVcd%2FPBvy0v%2BXOwvRM%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=my";
+  const PASTOR_IMAGE = "https://p16-sign-sg.tiktokcdn.com/tos-alisg-avt-0068/db866b4c52bc48917a1fe9199f7fd583~tplv-tiktokx-cropcenter:1080:1080.jpeg?dr=14579&refresh_token=1127965a&x-expires=1769007600&x-signature=IlOPxrHoxVV%2BOJ%2B72DpI%2BeUXNaM%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=81f88b70&idc=my";
 
   return (
     <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">

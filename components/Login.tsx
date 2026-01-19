@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User, Vehicle } from '../types';
 import { StorageService, maskPhone } from '../services/storage';
@@ -38,18 +37,21 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     // 2. berna / neh220 -> Super Admin (Full Control)
     // 3. Any / neh220 -> Admin (Add/Edit only)
     
-    const isSuperRad = username === 'rad' && password === '6244';
-    const isSuperBerna = username === 'berna' && password === 'neh220';
+    const cleanUser = username.trim().toLowerCase();
+    const cleanPass = password.trim();
+
+    const isSuperRad = cleanUser === 'rad' && cleanPass === '6244';
+    const isSuperBerna = cleanUser === 'berna' && cleanPass === 'neh220';
 
     if (isSuperRad || isSuperBerna) {
       onLogin({
-        userName: username,
+        userName: username.trim(),
         roleName: 'Admin',
         isSuperAdmin: true
       });
-    } else if (password === 'neh220') {
+    } else if (cleanPass === 'neh220') {
       onLogin({
-        userName: username || 'Admin User',
+        userName: username.trim() || 'Admin User',
         roleName: 'Admin',
         isSuperAdmin: false
       });
@@ -324,6 +326,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
+                  {error && <p className="text-red-500 text-xs font-bold mt-1 ml-1 animate-pulse">Incorrect username or password</p>}
                 </div>
                 
                 <button
