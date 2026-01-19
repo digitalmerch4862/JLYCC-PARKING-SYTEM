@@ -183,25 +183,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     };
   }, [isMounted]);
 
-  // --- Voice Logic ---
+  // --- Voice Logic (Revised) ---
 
   const smartFormatPlate = (text: string) => {
-    // 1. Convert common phonetic numbers to digits
-    const replacements: { [key: string]: string } = {
+    // 1. Define Number Mappings
+    const numberMap: { [key: string]: string } = {
       'ZERO': '0', 'ONE': '1', 'TWO': '2', 'THREE': '3', 'FOUR': '4',
       'FIVE': '5', 'SIX': '6', 'SEVEN': '7', 'EIGHT': '8', 'NINE': '9'
     };
     
-    let upperText = text.toUpperCase();
+    // 2. Split phrase into words by space
+    const words = text.toUpperCase().trim().split(/\s+/);
     
-    Object.keys(replacements).forEach(word => {
-      // Replace whole words only
-      const regex = new RegExp(`\\b${word}\\b`, 'g');
-      upperText = upperText.replace(regex, replacements[word]);
-    });
+    const processed = words.map(word => {
+      // If it's a known number word, return the digit
+      if (numberMap[word]) return numberMap[word];
 
-    // 2. Remove spaces and non-alphanumeric characters
-    return upperText.replace(/[^A-Z0-9]/g, '');
+      // If it's any other word (e.g. "Alpha", "Romeo", "Car"), take ONLY the first letter
+      if (word.length > 0) return word.charAt(0);
+      
+      return '';
+    }).join('');
+
+    // 3. Final cleanup: Remove anything that isn't A-Z or 0-9
+    return processed.replace(/[^A-Z0-9]/g, '');
   };
 
   const startListening = () => {
@@ -243,7 +248,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
     };
 
     recognition.onend = () => {
-      // If we didn't get a result, close or stay open based on logic, but usually we just stop loading UI
       if (recognitionRef.current) {
         recognitionRef.current = null;
       }
@@ -485,7 +489,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
                          </svg>
                       </div>
                    </div>
-                   <p className="text-slate-400 text-sm font-medium">Say the license plate (e.g. "Alpha Bravo One Two Three")</p>
+                   <p className="text-slate-400 text-sm font-medium">Say Phonetic Plate (e.g. "Alpha Bravo One")</p>
                 </div>
               )}
 
@@ -604,7 +608,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         </div>
         {isAdmin && (
           <div className="flex gap-2 w-full sm:w-auto">
-             {/* Voice Input Button (Replaces Scanner) */}
+             {/* Voice Input Button */}
              <button 
                 onClick={startListening}
                 className="flex items-center justify-center px-6 py-4 bg-slate-900 dark:bg-slate-800 text-white rounded-[1.25rem] hover:bg-red-600 transition-all active:scale-95 shadow-lg shadow-slate-900/20 group"
