@@ -265,7 +265,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onAction }) => {
         }
       });
       
-      // Access .text property directly
       const text = (response.text || '').trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
       
       setScannedPlate(text === 'UNKNOWN' ? '' : text);
